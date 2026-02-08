@@ -1565,6 +1565,9 @@ func (ch *ConversationsHandler) convertMessagesFromHistory(slackMessages []slack
 		if msgText == "" {
 			msgText = text.BlocksToText(msg.Blocks)
 		}
+		if msgText == "" {
+			msgText = text.FilesToText(msg.Files)
+		}
 		msgText += text.AttachmentsTo2CSV(msgText, msg.Attachments)
 
 		var reactionParts []string
