@@ -406,7 +406,7 @@ func TestAttachmentToText(t *testing.T) {
 				Title:     "Error details",
 				TitleLink: "https://sentry.io/issues/123",
 			},
-			want: "Title: [Error details][https://sentry.io/issues/123]",
+			want: "Title: [Error details](https://sentry.io/issues/123)",
 		},
 		{
 			name: "title_without_link",
