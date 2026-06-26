@@ -17,6 +17,40 @@ bearer token to manage — just a binary your agents call through their shell.
 The original MCP server is still here (`cmd/slack-mcp-server`); the CLI is
 additive and reuses the same `pkg/provider` engine unchanged.
 
+## How it works
+
+`slack-cli` doesn't reimplement Slack — it drives the **same tool handlers the
+MCP server uses, in-process**. Each invocation:
+
+1. **Resolves credentials** — explicit `SLACK_MCP_*` env/flags → `--profile` →
+   default profile — and writes them into the env the engine reads.
+2. **Builds the provider** (`pkg/provider`): the same stealth/OAuth auth, edge
+   API, rate limiter, and caching the MCP server uses.
+3. **Loads the shared on-disk cache** of users/channels (skip with
+   `--no-cache`) so `#channel` and `@user` names resolve to IDs.
+4. **Invokes the tool handler** for the subcommand directly — no MCP transport,
+   no JSON-RPC — and prints its CSV/JSON result to stdout.
+
+```mermaid
+flowchart LR
+  A["slack-cli CMD"] --> B["resolve creds<br/>(env / profile)"]
+  B --> C["provider.New<br/>(pkg/provider)"]
+  C --> D["load shared<br/>on-disk cache"]
+  D --> E["invoke tool handler<br/>in-process"]
+  E --> F["CSV / JSON<br/>to stdout"]
+```
+
+The only glue between the CLI and the MCP toolset is `internal/toolcall`: it
+turns a subcommand's flags into the arguments map a handler expects, calls the
+handler, and returns its text. Command code never imports the MCP library, and
+`pkg/handler` / `pkg/provider` are reused unchanged — so the bundled MCP server
+(`cmd/slack-mcp-server`) keeps working and upstream updates still merge cleanly.
+
+Because nothing stays resident, there's nothing to keep warm between calls: the
+cost moves from "one server per agent, held for the whole session" to "one cache
+read per command." The cache is shared across every invocation (and with the MCP
+server) — refresh it explicitly with `slack-cli cache refresh`.
+
 ## Install
 
 ```sh
