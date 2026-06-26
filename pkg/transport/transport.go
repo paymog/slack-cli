@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/text"
+	"github.com/paymog/slack-cli/pkg/text"
 	utls "github.com/refraction-networking/utls"
 	"go.uber.org/zap"
 	"golang.org/x/net/http2"

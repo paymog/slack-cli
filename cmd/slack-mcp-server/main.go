@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/provider"
-	"github.com/korotovsky/slack-mcp-server/pkg/server"
 	"github.com/mattn/go-isatty"
+	"github.com/paymog/slack-cli/pkg/provider"
+	"github.com/paymog/slack-cli/pkg/server"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
