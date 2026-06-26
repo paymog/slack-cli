@@ -28,7 +28,7 @@ func channelsListCommand(cfg *config.Config) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List channels (public/private/im/mpim), as CSV",
+		Short: "List channels (public/private/im/mpim), as JSON",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			p, logger, err := runtime.PrepareRead(cmd.Context(), cfg)
 			if err != nil {
@@ -47,7 +47,7 @@ func channelsListCommand(cfg *config.Config) *cobra.Command {
 				args["query"] = query
 				args["query_targets"] = queryTargets
 			}
-			return emit(cmd, cfg, "channels_list", h.ChannelsHandler, args)
+			return emitTable(cmd, cfg, "channels_list", h.ChannelsHandler, args)
 		},
 	}
 	f := cmd.Flags()
@@ -68,7 +68,7 @@ func channelsMeCommand(cfg *config.Config) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "me",
-		Short: "List channels the authenticated user belongs to, as CSV",
+		Short: "List channels the authenticated user belongs to, as JSON",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			p, logger, err := runtime.PrepareRead(cmd.Context(), cfg)
 			if err != nil {
@@ -80,7 +80,7 @@ func channelsMeCommand(cfg *config.Config) *cobra.Command {
 			if limit != 0 {
 				args["limit"] = limit
 			}
-			return emit(cmd, cfg, "channels_me", h.ChannelsMeHandler, args)
+			return emitTable(cmd, cfg, "channels_me", h.ChannelsMeHandler, args)
 		},
 	}
 	f := cmd.Flags()

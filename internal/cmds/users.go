@@ -21,7 +21,7 @@ func usersSearchCommand(cfg *config.Config) *cobra.Command {
 	var limit int
 	cmd := &cobra.Command{
 		Use:   "search <query>",
-		Short: "Search users by name, email, or display name, as CSV",
+		Short: "Search users by name, email, or display name, as JSON",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, logger, err := runtime.PrepareRead(cmd.Context(), cfg)
@@ -30,7 +30,7 @@ func usersSearchCommand(cfg *config.Config) *cobra.Command {
 			}
 			h := handler.NewConversationsHandler(p, logger)
 			a := map[string]any{"query": args[0], "limit": limit}
-			return emit(cmd, cfg, "users_search", h.UsersSearchHandler, a)
+			return emitTable(cmd, cfg, "users_search", h.UsersSearchHandler, a)
 		},
 	}
 	cmd.Flags().IntVar(&limit, "limit", 10, "max results (1-100)")

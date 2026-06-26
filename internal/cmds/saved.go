@@ -52,7 +52,7 @@ func savedListCommand(cfg *config.Config) *cobra.Command {
 				"include_messages":      includeMessages,
 				"max_messages_per_item": maxPerItem,
 			}
-			return emit(cmd, cfg, "saved_list", h.SavedListHandler, a)
+			return emitTable(cmd, cfg, "saved_list", h.SavedListHandler, a)
 		},
 	}
 	f := cmd.Flags()

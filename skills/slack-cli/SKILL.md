@@ -59,20 +59,22 @@ Read commands auto-load the on-disk cache (and fetch on first run). Use
 ## Channels / IDs
 
 `<channel>` accepts an ID (`C123…`), a name (`#general`), or a DM (`@username`).
-Output is CSV (or JSON for some commands); valid JSON is pretty-printed unless
-`--raw`.
+Output is JSON: list/table commands print a JSON array of objects, so pipe to
+`jq` (e.g. `slack-cli channels list | jq -r '.[].Name'`). Table values are
+strings — use jq's `tonumber` for numeric comparisons. `--raw` prints the
+original CSV/text verbatim.
 
 ## Read commands
 
 ```sh
-# Channels (CSV: id,name,topic,purpose,memberCount,cursor)
+# Channels (JSON array; fields: ID,Name,Topic,Purpose,MemberCount,Cursor)
 slack-cli channels list [--types public_channel,private_channel,im,mpim] [--query foo] [--query-targets name,topic,purpose] [--sort popularity] [--limit 100] [--cursor C]
 slack-cli channels me                      # channels you belong to
 
 # Conversation history & threads
 slack-cli conversations history <channel> [--limit 1d|1w|30d|<count>] [--cursor C] [--activity]
 slack-cli conversations replies <channel> <thread_ts>
-# Pagination: read the cursor from the last row, then pass --limit='' --cursor <value>.
+# Pagination: read the Cursor field of the last element, then pass --limit='' --cursor <value>.
 
 # Search (needs xoxp or browser token; not bot)
 slack-cli conversations search [query] \
@@ -84,7 +86,7 @@ slack-cli conversations search [query] \
 # Unreads, prioritized DMs > partner > internal (best with xoxp/browser)
 slack-cli conversations unreads [--types all|dm|group_dm|partner|internal] [--mentions-only] [--max-channels 50] [--max-messages-per-channel 10] [--include-muted]
 
-# Users (CSV incl. DMChannelID for quick messaging)
+# Users (JSON array incl. DMChannelID for quick messaging)
 slack-cli users search <query> [--limit 10]
 
 # User groups
@@ -131,8 +133,8 @@ slack-cli conversations replies C0123456789 1718000000.123456
 slack-cli users search alice            # note DMChannelID, e.g. D0123
 SLACK_MCP_ADD_MESSAGE_TOOL=D0123 slack-cli conversations add D0123 -t "ping"
 
-# Last day of a channel as CSV for further processing
-slack-cli conversations history #general --limit 1d
+# Last day of a channel as JSON, extract message text with jq
+slack-cli conversations history #general --limit 1d | jq -r '.[].Text'
 ```
 
 ## Common issues

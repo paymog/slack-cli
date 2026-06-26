@@ -27,7 +27,7 @@ func usergroupsListCommand(cfg *config.Config) *cobra.Command {
 	var includeUsers, includeCount, includeDisabled bool
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List user groups as CSV",
+		Short: "List user groups as JSON",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			p, logger, err := runtime.PrepareRead(cmd.Context(), cfg)
 			if err != nil {
@@ -39,7 +39,7 @@ func usergroupsListCommand(cfg *config.Config) *cobra.Command {
 				"include_count":    includeCount,
 				"include_disabled": includeDisabled,
 			}
-			return emit(cmd, cfg, "usergroups_list", h.UsergroupsListHandler, a)
+			return emitTable(cmd, cfg, "usergroups_list", h.UsergroupsListHandler, a)
 		},
 	}
 	f := cmd.Flags()
@@ -63,7 +63,7 @@ func usergroupsMeCommand(cfg *config.Config) *cobra.Command {
 			h := handler.NewUsergroupsHandler(p, logger)
 			a := map[string]any{"action": args[0]}
 			putStr(a, "usergroup_id", usergroupID)
-			return emit(cmd, cfg, "usergroups_me", h.UsergroupsMeHandler, a)
+			return emitTable(cmd, cfg, "usergroups_me", h.UsergroupsMeHandler, a)
 		},
 	}
 	cmd.Flags().StringVar(&usergroupID, "usergroup-id", "", "group ID (required for join/leave)")
