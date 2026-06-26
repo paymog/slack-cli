@@ -31,7 +31,7 @@ func conversationsHistoryCommand(cfg *config.Config) *cobra.Command {
 	var activity bool
 	cmd := &cobra.Command{
 		Use:   "history <channel>",
-		Short: "Get channel/DM messages as CSV (channel ID, #name, or @dm)",
+		Short: "Get channel/DM messages as JSON (channel ID, #name, or @dm)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, logger, err := runtime.PrepareRead(cmd.Context(), cfg)
@@ -45,7 +45,7 @@ func conversationsHistoryCommand(cfg *config.Config) *cobra.Command {
 			}
 			putStr(a, "limit", limit)
 			putStr(a, "cursor", cursor)
-			return emit(cmd, cfg, "conversations_history", h.ConversationsHistoryHandler, a)
+			return emitTable(cmd, cfg, "conversations_history", h.ConversationsHistoryHandler, a)
 		},
 	}
 	f := cmd.Flags()
@@ -60,7 +60,7 @@ func conversationsRepliesCommand(cfg *config.Config) *cobra.Command {
 	var activity bool
 	cmd := &cobra.Command{
 		Use:   "replies <channel> <thread_ts>",
-		Short: "Get a thread's replies as CSV",
+		Short: "Get a thread's replies as JSON",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, logger, err := runtime.PrepareRead(cmd.Context(), cfg)
@@ -75,7 +75,7 @@ func conversationsRepliesCommand(cfg *config.Config) *cobra.Command {
 			}
 			putStr(a, "limit", limit)
 			putStr(a, "cursor", cursor)
-			return emit(cmd, cfg, "conversations_replies", h.ConversationsRepliesHandler, a)
+			return emitTable(cmd, cfg, "conversations_replies", h.ConversationsRepliesHandler, a)
 		},
 	}
 	f := cmd.Flags()
@@ -95,7 +95,7 @@ func conversationsSearchCommand(cfg *config.Config) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "search [query]",
-		Short: "Search messages with optional filters, as CSV",
+		Short: "Search messages with optional filters, as JSON",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, logger, err := runtime.PrepareRead(cmd.Context(), cfg)
@@ -119,7 +119,7 @@ func conversationsSearchCommand(cfg *config.Config) *cobra.Command {
 			putStr(a, "filter_date_on", on)
 			putStr(a, "filter_date_during", during)
 			putStr(a, "cursor", cursor)
-			return emit(cmd, cfg, "conversations_search_messages", h.ConversationsSearchHandler, a)
+			return emitTable(cmd, cfg, "conversations_search_messages", h.ConversationsSearchHandler, a)
 		},
 	}
 	f := cmd.Flags()
@@ -212,7 +212,7 @@ func conversationsUnreadsCommand(cfg *config.Config) *cobra.Command {
 				"mentions_only":            mentionsOnly,
 				"include_muted":            includeMtd,
 			}
-			return emit(cmd, cfg, "conversations_unreads", h.ConversationsUnreadsHandler, a)
+			return emitTable(cmd, cfg, "conversations_unreads", h.ConversationsUnreadsHandler, a)
 		},
 	}
 	f := cmd.Flags()

@@ -29,7 +29,7 @@ MCP server uses, in-process**. Each invocation:
 3. **Loads the shared on-disk cache** of users/channels (skip with
    `--no-cache`) so `#channel` and `@user` names resolve to IDs.
 4. **Invokes the tool handler** for the subcommand directly — no MCP transport,
-   no JSON-RPC — and prints its CSV/JSON result to stdout.
+   no JSON-RPC — and prints its result to stdout as JSON for piping to `jq`.
 
 ```mermaid
 flowchart LR
@@ -37,7 +37,7 @@ flowchart LR
   B --> C["provider.New<br/>(pkg/provider)"]
   C --> D["load shared<br/>on-disk cache"]
   D --> E["invoke tool handler<br/>in-process"]
-  E --> F["CSV / JSON<br/>to stdout"]
+  E --> F["JSON<br/>to stdout"]
 ```
 
 The only glue between the CLI and the MCP toolset is `internal/toolcall`: it
@@ -180,9 +180,12 @@ SLACK_MCP_ATTACHMENT_TOOL=true     slack-cli attachments get <file_id>
 
 ## Output
 
-Tool output is CSV or JSON, identical to the MCP server's tool results. Valid
-JSON is pretty-printed; CSV/text is passed through. `--raw` prints bytes
-verbatim.
+Tool output is JSON. Table results (channels, messages, users, saved items,
+user groups) print as a JSON array of objects; status/JSON handlers print their
+JSON verbatim. Everything is pipeable to `jq`, e.g. `slack-cli channels list |
+jq -r '.[].Name'`. Table values are strings (CSV carries no types) — use jq's
+`tonumber` when you need numbers. `--raw` prints the handler's bytes verbatim
+(the original CSV/text the MCP server returns).
 
 ## Claude Code skill
 
