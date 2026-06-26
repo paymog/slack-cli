@@ -122,3 +122,7 @@ release: ## Create release tag. Usage: make tag TAG=v1.2.3
 	fi
 	git tag -a "$(TAG)" -m "Release $(TAG)"
 	git push origin "$(TAG)"
+
+.PHONY: cli
+cli: ## Build the slack-cli binary
+	$(GO) build -ldflags "-s -w -X $(PACKAGE)/internal/cli.version=$(GIT_VERSION)" -o slack-cli ./cmd/slack-cli

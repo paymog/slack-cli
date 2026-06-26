@@ -1,0 +1,37 @@
+version: 2
+
+project_name: slack-cli
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: slack-cli
+    main: ./cmd/slack-cli
+    binary: slack-cli
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/paymog/slack-cli/internal/cli.version={{ .Version }}
+
+archives:
+  - id: default
+    ids:
+      - slack-cli
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else }}{{ .Arch }}{{ end }}
+    files:
+      - README.md
+
+checksum:
+  name_template: checksums.txt

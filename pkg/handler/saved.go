@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/gocarina/gocsv"
-	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
-	"github.com/korotovsky/slack-mcp-server/pkg/provider"
+	"github.com/paymog/slack-cli/pkg/limiter"
+	"github.com/paymog/slack-cli/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"

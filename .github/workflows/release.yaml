@@ -1,55 +1,74 @@
-name: Release NPM
+name: release
 
 on:
   push:
     tags:
-      - '*'
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  GO_VERSION: 1.25
-  NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - "v*"
 
 permissions:
   contents: write
-  discussions: write
 
 jobs:
-  release:
-    name: Release
-    runs-on: macos-latest
+  goreleaser:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v4
         with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Install dependencies
-        run: npm install -g @anthropic-ai/dxt
-
-      - name: Build binaries
-        run: make build-all-platforms
-
-      - name: Build DTX Extension
-        run: make build-dxt
-
-      - name: Upload artifacts
-        uses: softprops/action-gh-release@v3
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
         with:
-          generate_release_notes: true
-          make_latest: true
-          files: |
-            LICENSE
-            build/slack-mcp-server-*
-            build/slack-mcp-server.dxt
-            .env.dist
-            docker-compose.yml
+          go-version-file: go.mod
+          cache: true
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Update Homebrew tap
+        env:
+          DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
 
-      - name: Publish npm
-        run:
-          make npm-publish
+          version="${TAG#v}"
+          revision="$(git rev-parse HEAD)"
+          tap_dir="$(mktemp -d)/homebrew-tap"
+
+          key_file="$(mktemp)"
+          printf '%s\n' "$DEPLOY_KEY" > "$key_file"
+          chmod 600 "$key_file"
+          export GIT_SSH_COMMAND="ssh -i $key_file -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+
+          git clone git@github.com:paymog/homebrew-tap.git "$tap_dir"
+          mkdir -p "$tap_dir/Formula"
+          cat > "$tap_dir/Formula/slack-cli.rb" <<EOF
+          class SlackCli < Formula
+            desc "Slack workspace tools as a CLI (no daemon, no MCP server process)"
+            homepage "https://github.com/paymog/slack-cli"
+            url "https://github.com/paymog/slack-cli.git",
+                tag:      "$TAG",
+                revision: "$revision"
+            version "$version"
+
+            depends_on "go" => :build
+
+            def install
+              system "go", "build", *std_go_args(ldflags: "-s -w -X github.com/paymog/slack-cli/internal/cli.version=#{version}"), "./cmd/slack-cli"
+            end
+
+            test do
+              assert_match "slack-cli", shell_output("#{bin}/slack-cli --help")
+            end
+          end
+          EOF
+
+          cd "$tap_dir"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/slack-cli.rb
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: update slack-cli to $TAG"
+          git push

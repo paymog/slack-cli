@@ -1,0 +1,27 @@
+# Napkin
+
+Per-repo working memory. Read first, update continuously.
+
+## Domain Notes
+- This repo is a **fork** of `korotovsky/slack-mcp-server` (remote `upstream`), being turned into a **CLI** (`slack-cli`) so a dev running 10+ agents doesn't pay one resident MCP process per agent. CLI = zero resident processes, parse-per-call. No daemon (user decision).
+- Module renamed `github.com/korotovsky/slack-mcp-server` → `github.com/paymog/slack-cli` to match the user's other CLIs (`paymog/groundcover-cli`, `paymog/blacksmith-cli`) and enable `go install`/homebrew/ldflags. Re-run the rename codemod after any `git merge upstream/master` (replace import prefix across *.go).
+- Architecture decision: **fork-and-extend, not hard-fork**. Keep the MCP server (`cmd/slack-mcp-server`, `pkg/server`) intact. Provider/edge/limiter/text packages stay UNTOUCHED. The CLI is additive.
+- The CLI reuses handler logic by invoking the existing `(ctx, mcp.CallToolRequest) (*mcp.CallToolResult, error)` handler methods **in-process**. The only mcp-go coupling lives in `internal/toolcall` (a ~30-line adapter: args map → request → invoke → extract text). Command files never import mcp-go. This keeps handlers byte-for-byte unchanged → clean upstream merges.
+- **Upstream files that diverged (merge-conflict awareness):** module rename touches imports in all *.go; `.github/workflows/release.yaml` was REPLACED (was NPM/DXT server release on `*` tags → now CLI goreleaser+homebrew on `v*`); `.github/workflows/release-image.yaml` DELETED (server docker image); `Makefile` appended `cli` target; `.gitignore` appended `/slack-cli`,`/dist`. New files (no conflict): `cmd/slack-cli/`, `internal/`, `pkg/provider/validate.go`, `.goreleaser.yaml`, `skills/slack-cli/`, `.claude/`.
+- **STATUS: CLI complete + verified.** All 21 tools wired as subcommands. build/vet/gofmt clean; unit tests pass (`internal/config`,`credstore`,`toolcall`, named `TestUnit*` so `make test`'s `-run=.*Unit.*` runs them); MCP server still builds. Demo-mode verified (`channels list`, write-gating, arg validation, no-creds error). NOT yet verified against real Slack creds (need user tokens). Pre-existing `TestIntegration*` failures in `pkg/handler` are upstream (need ngrok) — not ours; `make test` excludes them.
+
+## Patterns That Work
+- `provider.New(transport, logger)` reads tokens from `SLACK_MCP_*` env vars. CLI resolves a profile, sets those env vars in-process (`config.ApplyToEnv` via os.Setenv), then calls `provider.New`. Zero provider changes.
+- Cache: `RefreshUsers/RefreshChannels(ctx)` load disk cache synchronously + set ready (network-fetch synchronously only on first run/missing cache). `ForceRefreshUsers/Channels(ctx)` = synchronous network fetch + disk write → use for `cache refresh`. `SkipCache()` marks ready w/o loading → use for `--no-cache`.
+- Conventions copied from `~/code/groundcover-cli` (Go, cobra, zalando/go-keyring, profiles.yaml via os.UserConfigDir, `auth login/list/default/status/token/logout`, `internal/{cli,config,credstore,output}`, ldflags version in `internal/cli.version`, goreleaser + homebrew tap `paymog/tap`, ships a `skills/<name>-cli/SKILL.md`).
+
+## Gotchas (self)
+- **Write/sensitive handlers self-gate INSIDE their parse funcs** (`parseParamsToolAddMessage`/`Reaction`/`Mark`/`FilesGet` each check `SLACK_MCP_ADD_MESSAGE_TOOL`/`_REACTION_TOOL`/`_MARK_TOOL`/`_ATTACHMENT_TOOL`). The CLI inherits the guards for free — no CLI-side gating needed; user must set the env var to use `conversations add`/`reactions`/`conversations mark`/`attachments get`. (Server registration in server.go ALSO gates, but the self-gate is what protects the CLI.)
+- `provider.New` calls `logger.Fatal` (os.Exit) on missing/invalid auth. Pre-check `config.RequireAuth()` for a clean error; build a quiet zap logger (ErrorLevel) so Info logs ("Authenticated to Slack", "Loaded users from cache") don't spew. `--verbose` raises level.
+- Handler param TYPES differ: `conversations` reads `limit` as **string** (`GetString`, "1d"); `channels` reads `limit` as **int** (`GetInt`). Build the args map with the type each handler expects.
+- mcp-go is `v0.44.0`. `CallToolRequest{Params: CallToolParams{Name, Arguments: map[string]any}}`; `GetArguments()` requires `Arguments` to be `map[string]any`. Result text = concat `res.Content[].(mcp.TextContent).Text`; honor `res.IsError`.
+
+## User Preferences
+- Goldsky work → Linear ticket required; this is a side project (not under ~/code/goldskyio/) → no ticket needed.
+- Feature work on a branch (here: `feat/cli`), never on default.
+- Concise. rg for broad search.
