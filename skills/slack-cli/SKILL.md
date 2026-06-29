@@ -1,14 +1,30 @@
 ---
 name: slack-cli
-description: Invoke the `slack-cli` binary to read and act on a Slack workspace from the command line — list channels, read/search conversation history and threads, fetch unread messages, search users, manage user groups, post messages, add reactions, mark channels read, and manage saved items. Use whenever a task needs Slack data or actions, such as "what are the unread messages in #incidents", "search Slack for the deploy thread", "who is @alice", "post a message to #general", "list channels matching X", "react with :rocket: to that message", "what did the team say about Y", or "show replies in this thread". slack-cli is the no-daemon CLI alternative to the slack-mcp-server; it reads a shared on-disk cache so it is cheap to call repeatedly.
+description: Invoke the `slack-cli` binary to read and act on a Slack workspace from the command line — list channels, read/search conversation history and threads, fetch unread messages, search users, manage user groups, post messages, add reactions, mark channels read, and manage saved items. Use whenever a task needs Slack data or actions, such as "what are the unread messages in #incidents", "search Slack for the deploy thread", "who is @alice", "post a message to #general", "list channels matching X", "react with :rocket: to that message", "what did the team say about Y", or "show replies in this thread". slack-cli is the no-daemon CLI alternative to the slack-mcp-server; it reads a shared on-disk cache so it is cheap to call repeatedly. Output is JSON by default, so results pipe cleanly into `jq`.
 ---
 
 # Slack CLI
 
 Invoke the `slack-cli` binary (install via `brew install paymog/tap/slack-cli`).
 Source of truth is [`paymog/slack-cli`](https://github.com/paymog/slack-cli). It
-wraps the `korotovsky/slack-mcp-server` engine, so behavior and output match
-that server's tools.
+wraps the `korotovsky/slack-mcp-server` engine for behavior, but **prints JSON by
+default** (the underlying MCP server emits CSV) so output pipes cleanly into `jq`.
+
+## Output
+
+Every command prints **JSON by default**. List/table commands (channels,
+messages, users, saved items, user groups) emit a JSON array of objects, so pipe
+straight into `jq`:
+
+```sh
+slack-cli channels list | jq -r '.[].Name'
+slack-cli conversations history '#general' --limit 1d | jq -r '.[].Text'
+slack-cli users search alice | jq -r '.[].DMChannelID'
+```
+
+Field values are strings (CSV carries no types) — use jq's `tonumber` for numeric
+comparisons. Write/status commands print a short text or JSON line. `--raw` prints
+the underlying CSV/text verbatim.
 
 ## Auth (required before any command)
 
@@ -59,10 +75,6 @@ Read commands auto-load the on-disk cache (and fetch on first run). Use
 ## Channels / IDs
 
 `<channel>` accepts an ID (`C123…`), a name (`#general`), or a DM (`@username`).
-Output is JSON: list/table commands print a JSON array of objects, so pipe to
-`jq` (e.g. `slack-cli channels list | jq -r '.[].Name'`). Table values are
-strings — use jq's `tonumber` for numeric comparisons. `--raw` prints the
-original CSV/text verbatim.
 
 ## Read commands
 
