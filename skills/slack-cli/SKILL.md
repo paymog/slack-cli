@@ -121,7 +121,7 @@ SLACK_MCP_ADD_MESSAGE_TOOL=true  slack-cli conversations add <channel> --blocks 
 SLACK_MCP_MARK_TOOL=true         slack-cli conversations mark <channel> [--ts 123.456]
 SLACK_MCP_REACTION_TOOL=true     slack-cli reactions add <channel> <timestamp> --emoji rocket
 SLACK_MCP_REACTION_TOOL=true     slack-cli reactions remove <channel> <timestamp> --emoji rocket
-SLACK_MCP_ATTACHMENT_TOOL=true   slack-cli attachments get <file_id>     # Fxxxxxxxxxx, max 5MB
+SLACK_MCP_ATTACHMENT_TOOL=true   slack-cli attachments get <file_id> [-o path]   # Fxxxxxxxxxx, max 5MB
 slack-cli usergroups create --name "Eng" [--handle eng] [--description ...] [--channels C1,C2]
 slack-cli usergroups update <usergroup_id> [--name ...] [--handle ...] [--channels ...]
 slack-cli usergroups users-update <usergroup_id> --users U1,U2,U3
@@ -147,6 +147,13 @@ SLACK_MCP_ADD_MESSAGE_TOOL=D0123 slack-cli conversations add D0123 -t "ping"
 
 # Last day of a channel as JSON, extract message text with jq
 slack-cli conversations history #general --limit 1d | jq -r '.[].Text'
+
+# Download an image (or any binary) attachment to a file (needs SLACK_MCP_ATTACHMENT_TOOL).
+# -o writes the decoded bytes and keeps stdout to a small metadata JSON — use it
+# for images/binaries so a multi-MB base64 blob doesn't flood the terminal.
+SLACK_MCP_ATTACHMENT_TOOL=true slack-cli attachments get F0123ABCD -o avatar.png
+# Without -o the bytes come back inline, base64-encoded under .content — decode with:
+SLACK_MCP_ATTACHMENT_TOOL=true slack-cli attachments get F0123ABCD | jq -r .content | base64 --decode > avatar.png
 ```
 
 ## Common issues

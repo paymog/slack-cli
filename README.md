@@ -175,7 +175,7 @@ SLACK_MCP_ADD_MESSAGE_TOOL=C123,D456 slack-cli conversations add C123 -t "hi"   
 SLACK_MCP_MARK_TOOL=true           slack-cli conversations mark <channel> [--ts 123.456]
 SLACK_MCP_REACTION_TOOL=true       slack-cli reactions add <channel> <ts> --emoji rocket
 SLACK_MCP_REACTION_TOOL=true       slack-cli reactions remove <channel> <ts> --emoji rocket
-SLACK_MCP_ATTACHMENT_TOOL=true     slack-cli attachments get <file_id>
+SLACK_MCP_ATTACHMENT_TOOL=true     slack-cli attachments get <file_id> [-o path]
 ```
 
 ## Output
@@ -186,6 +186,12 @@ JSON verbatim. Everything is pipeable to `jq`, e.g. `slack-cli channels list |
 jq -r '.[].Name'`. Table values are strings (CSV carries no types) — use jq's
 `tonumber` when you need numbers. `--raw` prints the handler's bytes verbatim
 (the original CSV/text the MCP server returns).
+
+Binary attachments (`attachments get`) are the exception: the bytes come back
+inline as base64 under `.content` (images included), so decode with `jq -r
+.content | base64 --decode`. Or pass `-o <path>` to write the decoded bytes to a
+file and keep stdout to a small metadata JSON — recommended for images and large
+binaries so a multi-MB blob doesn't flood the terminal.
 
 ## Claude Code skill
 
@@ -203,8 +209,8 @@ npx skills add paymog/slack-cli
 - `internal/cli` — root command, global flags, `auth` subcommands.
 - `internal/cmds` — one file per tool group; each subcommand invokes a handler.
 - `internal/toolcall` — the only coupling to mcp-go: invokes the upstream tool
-  handlers in-process (args map → request → text), so `pkg/handler` stays
-  unchanged and upstream merges stay clean.
+  handlers in-process (args map → request → text plus any image bytes), so
+  `pkg/handler` stays unchanged and upstream merges stay clean.
 - `internal/config`, `internal/credstore`, `internal/runtime`, `internal/output`
   — auth resolution, keyring profiles, provider bootstrap, result printing.
 - `pkg/provider`, `pkg/handler`, … — the upstream engine, reused as-is.
