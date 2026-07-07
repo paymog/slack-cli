@@ -41,6 +41,12 @@ func attachmentsGetCommand(cfg *config.Config) *cobra.Command {
 			"the terminal.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// attachments get is a read-only download, not a mutation like
+			// posting or reacting, so the CLI always enables the upstream
+			// attachment gate in-process instead of making users set
+			// SLACK_MCP_ATTACHMENT_TOOL. The handler reads this env var at parse
+			// time; the standalone MCP server still gates via its own env.
+			_ = os.Setenv("SLACK_MCP_ATTACHMENT_TOOL", "true")
 			p, logger, err := runtime.PrepareRead(cmd.Context(), cfg)
 			if err != nil {
 				return err

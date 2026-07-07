@@ -162,6 +162,9 @@ slack-cli usergroups users-update <id> --users U1,U2
 slack-cli saved list [--filter saved|completed|archived]
 slack-cli saved update <item_id> <ts> [--mark completed] [--date-due 0]
 slack-cli saved clear-completed
+
+# Attachments (download a file by ID; always available, no env var needed)
+slack-cli attachments get <file_id> [-o path]
 ```
 
 ### Write/sensitive commands (disabled by default)
@@ -175,7 +178,6 @@ SLACK_MCP_ADD_MESSAGE_TOOL=C123,D456 slack-cli conversations add C123 -t "hi"   
 SLACK_MCP_MARK_TOOL=true           slack-cli conversations mark <channel> [--ts 123.456]
 SLACK_MCP_REACTION_TOOL=true       slack-cli reactions add <channel> <ts> --emoji rocket
 SLACK_MCP_REACTION_TOOL=true       slack-cli reactions remove <channel> <ts> --emoji rocket
-SLACK_MCP_ATTACHMENT_TOOL=true     slack-cli attachments get <file_id> [-o path]
 ```
 
 ## Output
