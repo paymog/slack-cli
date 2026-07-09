@@ -131,6 +131,55 @@ slack-cli saved update <item_id> <ts> [--mark completed] [--date-due <unix>]
 slack-cli saved clear-completed
 ```
 
+## Critical: multi-line / formatted posts
+
+**Default for any multi-line, bulleted, or code-heavy post: use `--blocks` (Block Kit), not `-t`.**
+
+Plain `-t` is fine for one-liners. For anything with newlines, bullets, code fences, or backticks:
+
+1. Prefer `--blocks '<Block Kit JSON array>'` so Slack renders headers/sections/dividers as separate blocks.
+2. Pass the payload via an **env var** (or file read into env) — never a shell heredoc, never inline text with backticks.
+3. Put real `\n` inside each block's `mrkdwn` text. Do not rely on markdown `-t` preserving newlines through the agent shell.
+
+```sh
+# GOOD — Block Kit via env (newlines + backticks survive)
+BLOCKS='[{"type":"section","text":{"type":"mrkdwn","text":"line1\n• bullet\n• bullet2"}}]'
+SLACK_MCP_ADD_MESSAGE_TOOL=true slack-cli conversations add C123 --thread-ts 123.456 --blocks "$BLOCKS"
+
+# BAD — heredoc / inline markdown with backticks
+# Shell treats `...` as command substitution; bullets collapse; partial garbage posts.
+SLACK_MCP_ADD_MESSAGE_TOOL=true slack-cli conversations add C123 -t "$(cat <<'EOF'
+# title with `code`
+• bullet
+EOF
+)"
+```
+
+### Delete a botched post
+
+`slack-cli` has **no delete command**. Use Slack's Web API with the resolved xoxp token:
+
+```sh
+TOKEN=$(slack-cli auth token | sed 's/^SLACK_MCP_XOXP_TOKEN=//')
+# chat.delete needs channel + message ts (e.g. 1783603079.714919 from replies)
+curl -s -X POST https://slack.com/api/chat.delete \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json; charset=utf-8" \
+  -d '{"channel":"C061WRT6XM5","ts":"1783603079.714919"}'
+```
+
+Only works for messages your token is allowed to delete (your own user messages with `xoxp`, or bot messages with the bot token).
+
+### Verify before walking away
+
+After posting multi-line content, re-read the thread and check for:
+- bullets stuck on one line
+- missing newlines after headers/code fences
+- truncated or shell-error fragments (`command not found`, half-eaten backticks)
+
+If any of those appear, delete via `chat.delete` and repost with `--blocks`.
+
+
 ## Recipes
 
 ```sh
@@ -172,3 +221,9 @@ slack-cli attachments get F0123ABCD | jq -r .content | base64 --decode > avatar.
   browser tokens.
 - **slow first run** — the initial `cache refresh` (or first read with no cache)
   crawls the whole workspace; subsequent calls read the cached file.
+- **multi-line post looks mangled (bullets on one line / backticks executed)** —
+  shell ate the body. Do **not** use heredocs or inline `-t` with backticks for
+  multi-line posts. Use `--blocks` + env-var JSON (see **Critical: multi-line /
+  formatted posts** above). Delete the bad message with `chat.delete`, then repost.
+- **need to delete a message** — no CLI subcommand; call `https://slack.com/api/chat.delete`
+  with the xoxp token from `slack-cli auth token` (see recipe above).
