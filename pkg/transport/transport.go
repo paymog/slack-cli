@@ -441,6 +441,7 @@ func ProvideHTTPClient(cookies []*http.Cookie, logger *zap.Logger) *http.Client 
 	}
 
 	transport = NewUserAgentTransport(transport, userAgent, cookies, logger)
+	transport = NewAuthHeaderTransport(transport)
 
 	client := &http.Client{
 		Transport: transport,
