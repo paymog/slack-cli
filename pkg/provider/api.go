@@ -301,6 +301,37 @@ type ApiProvider struct {
 	fetchChannelsMu           sync.Mutex   // serializes fetchAndStoreChannels calls
 }
 
+// tokenKind reports the credential class behind a token.
+//
+// isOAuth: official OAuth token (xoxp user or xoxb bot) — uses the Standard API.
+// isBotToken: bot token — determines feature availability (e.g. search, unreads).
+//
+// The classification comes from which variable supplied the token (config.Apply
+// exports profile credentials into the same variables), and only falls back to
+// the token's prefix. The value itself can be opaque: an egress proxy may hand
+// the CLI a sentinel and swap in the real credential on the wire, and sniffing
+// prefixes then misreads a bot token as a browser session — which routes calls
+// at the edge API on a per-workspace domain and offers session-only tools.
+//
+// xoxe.xoxp- and xoxe.xoxb- are token-rotation variants of xoxp/xoxb (same
+// scopes, 12h expiry).
+func tokenKind(token string) (isOAuth bool, isBotToken bool) {
+	// Same precedence as auth-provider selection: user token over bot token.
+	switch token {
+	case "":
+	case os.Getenv("SLACK_MCP_XOXP_TOKEN"):
+		return true, false
+	case os.Getenv("SLACK_MCP_XOXB_TOKEN"):
+		return true, true
+	case os.Getenv("SLACK_MCP_XOXC_TOKEN"):
+		return false, false
+	}
+
+	isBotToken = strings.HasPrefix(token, "xoxb-") || strings.HasPrefix(token, "xoxe.xoxb-")
+	isOAuth = isBotToken || strings.HasPrefix(token, "xoxp-") || strings.HasPrefix(token, "xoxe.xoxp-")
+	return isOAuth, isBotToken
+}
+
 func NewMCPSlackClient(authProvider auth.Provider, logger *zap.Logger) (*MCPSlackClient, error) {
 	httpClient := transport.ProvideHTTPClient(authProvider.Cookies(), logger)
 
@@ -325,10 +356,18 @@ func NewMCPSlackClient(authProvider auth.Provider, logger *zap.Logger) (*MCPSlac
 		BotID:        authResp.BotID,
 	}
 
-	slackClient = slack.New(authProvider.SlackToken(),
-		slack.OptionHTTPClient(httpClient),
-		slack.OptionAPIURL(authResp.URL+"api/"),
-	)
+	token := authProvider.SlackToken()
+	isOAuth, isBotToken := tokenKind(token)
+
+	// OAuth tokens talk to the shared API host (slack.com/api/, or slack-gov.com/api/
+	// on GovSlack) and stay there. Only browser-session tokens (xoxc/xoxd) need the
+	// per-workspace domain, which is what the edge client is built on. Rebasing every
+	// client onto https://<team>.slack.com/api/ also silently overrode GovSlack, and
+	// breaks egress proxies whose allowlist only knows the shared host.
+	if !isOAuth {
+		slackOpts = append(slackOpts, slack.OptionAPIURL(authResp.URL+"api/"))
+	}
+	slackClient = slack.New(token, slackOpts...)
 
 	edgeClient, err := edge.NewWithInfo(authResponse, authProvider,
 		edge.OptionHTTPClient(httpClient),
@@ -338,14 +377,6 @@ func NewMCPSlackClient(authProvider auth.Provider, logger *zap.Logger) (*MCPSlac
 	}
 
 	isEnterprise := authResp.EnterpriseID != ""
-	token := authProvider.SlackToken()
-
-	// Token type detection
-	// isOAuth: Official OAuth tokens (xoxp or xoxb) - uses Standard API
-	// isBotToken: Bot token - determines feature availability (e.g., search)
-	// xoxe.xoxp- and xoxe.xoxb- are token-rotation variants of xoxp/xoxb (same scopes, 12h expiry)
-	isOAuth := strings.HasPrefix(token, "xoxp-") || strings.HasPrefix(token, "xoxb-") || strings.HasPrefix(token, "xoxe.xoxp-") || strings.HasPrefix(token, "xoxe.xoxb-")
-	isBotToken := strings.HasPrefix(token, "xoxb-") || strings.HasPrefix(token, "xoxe.xoxb-")
 
 	return &MCPSlackClient{
 		slackClient:  slackClient,
