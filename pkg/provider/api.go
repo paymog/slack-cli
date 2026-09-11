@@ -1061,12 +1061,19 @@ func (ap *ApiProvider) fetchAndStoreUsers(ctx context.Context) error {
 	// Store intermediate snapshot so GetSlackConnect can read current users
 	ap.usersSnapshot.Store(newSnapshot)
 
-	connectUsers, err := ap.GetSlackConnect(ctx)
-	if err != nil {
-		ap.logger.Error("Failed to fetch users from Slack Connect", zap.Error(err))
-		return err
+	// Slack Connect enrichment rides client.userBoot, a webclient endpoint on the
+	// per-workspace domain that only browser-session tokens can call. With an
+	// OAuth token it always fails, and failing here threw away the whole user
+	// cache — every display name stayed unresolved (SIN-815).
+	var connectUsers []slack.User
+	if !ap.IsOAuth() {
+		connectUsers, err = ap.GetSlackConnect(ctx)
+		if err != nil {
+			ap.logger.Error("Failed to fetch users from Slack Connect", zap.Error(err))
+			return err
+		}
+		list = append(list, connectUsers...)
 	}
-	list = append(list, connectUsers...)
 
 	// Add Slack Connect users to a new snapshot (since maps are shared)
 	if len(connectUsers) > 0 {
