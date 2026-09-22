@@ -103,7 +103,7 @@ slack-cli auth list               # table; * marks the default
 slack-cli auth default work       # set the default profile
 slack-cli --profile work channels list   # use a profile for one command
 slack-cli auth status             # show which source resolved
-slack-cli auth token              # print resolved tokens as SLACK_MCP_* lines
+slack-cli auth token              # print resolved tokens as a JSON object
 slack-cli auth logout work        # remove a profile (-f to skip confirm)
 ```
 
@@ -189,12 +189,15 @@ SLACK_MCP_REACTION_TOOL=true       slack-cli reactions remove <channel> <ts> --e
 
 ## Output
 
-Tool output is JSON. Table results (channels, messages, users, saved items,
-user groups) print as a JSON array of objects; status/JSON handlers print their
-JSON verbatim. Everything is pipeable to `jq`, e.g. `slack-cli channels list |
-jq -r '.[].Name'`. Table values are strings (CSV carries no types) — use jq's
-`tonumber` when you need numbers. `--raw` prints the handler's bytes verbatim
-(the original CSV/text the MCP server returns).
+Successful commands print valid JSON by default. Table results (channels,
+messages, users, saved items, user groups) are arrays of objects. Structured
+mutations expose their result fields directly; for example,
+`conversations add` returns `{"channel":"C…","thread_ts":"…","ts":"…"}`.
+Legacy plain-text handler results are wrapped as `{"message":"…"}`. Everything
+is pipeable to `jq`, e.g. `slack-cli channels list | jq -r '.[].Name'` or
+`slack-cli conversations add … | jq -r .ts`. Table values remain strings
+because CSV carries no type information. `--raw` prints the original
+handler/command output verbatim.
 
 Binary attachments (`attachments get`) are the exception: the bytes come back
 inline as base64 under `.content` (images included), so decode with `jq -r

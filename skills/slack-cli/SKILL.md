@@ -12,19 +12,22 @@ default** (the underlying MCP server emits CSV) so output pipes cleanly into `jq
 
 ## Output
 
-Every command prints **JSON by default**. List/table commands (channels,
-messages, users, saved items, user groups) emit a JSON array of objects, so pipe
-straight into `jq`:
+Every successful command prints **valid JSON by default**. List/table commands
+(channels, messages, users, saved items, user groups) emit arrays of objects.
+Structured mutations expose their result fields directly; `conversations add`
+returns `channel`, optional `thread_ts`, and `ts`. Legacy plain-text statuses are
+wrapped as `{"message":"…"}`. Pipe directly into `jq`:
 
 ```sh
 slack-cli channels list | jq -r '.[].Name'
 slack-cli conversations history '#general' --limit 1d | jq -r '.[].Text'
 slack-cli users search alice | jq -r '.[].DMChannelID'
+slack-cli conversations add C123 --thread-ts 123.456 -t "hello" | jq -r .ts
 ```
 
-Field values are strings (CSV carries no types) — use jq's `tonumber` for numeric
-comparisons. Write/status commands print a short text or JSON line. `--raw` prints
-the underlying CSV/text verbatim.
+Field values from CSV-backed tables are strings; use jq's `tonumber` for numeric
+comparisons. `--raw` prints the underlying CSV/text or legacy human-readable
+command output verbatim.
 
 ## Auth (required before any command)
 
@@ -163,7 +166,7 @@ EOF
 `slack-cli` has **no delete command**. Use Slack's Web API with the resolved xoxp token:
 
 ```sh
-TOKEN=$(slack-cli auth token | sed 's/^SLACK_MCP_XOXP_TOKEN=//')
+TOKEN=$(slack-cli auth token | jq -r .SLACK_MCP_XOXP_TOKEN)
 # chat.delete needs channel + message ts (e.g. 1783603079.714919 from replies)
 curl -s -X POST https://slack.com/api/chat.delete \
   -H "Authorization: Bearer $TOKEN" \

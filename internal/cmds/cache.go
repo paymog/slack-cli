@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/paymog/slack-cli/internal/config"
+	"github.com/paymog/slack-cli/internal/output"
 	"github.com/paymog/slack-cli/internal/runtime"
 	"github.com/paymog/slack-cli/pkg/provider"
 	"github.com/spf13/cobra"
@@ -37,8 +38,14 @@ func cacheRefreshCommand(cfg *config.Config) *cobra.Command {
 			}
 			users := p.ProvideUsersMap()
 			channels := p.ProvideChannelsMaps()
-			fmt.Fprintf(cmd.OutOrStdout(), "Cache refreshed: %d users, %d channels\n", len(users.Users), len(channels.Channels))
-			return nil
+			if cfg.Raw {
+				fmt.Fprintf(cmd.OutOrStdout(), "Cache refreshed: %d users, %d channels\n", len(users.Users), len(channels.Channels))
+				return nil
+			}
+			return output.WriteJSON(cmd.OutOrStdout(), struct {
+				Users    int `json:"users"`
+				Channels int `json:"channels"`
+			}{Users: len(users.Users), Channels: len(channels.Channels)})
 		},
 	}
 }

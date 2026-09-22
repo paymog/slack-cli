@@ -16,12 +16,12 @@ import (
 	"time"
 
 	"github.com/gocarina/gocsv"
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/paymog/slack-cli/pkg/limiter"
 	"github.com/paymog/slack-cli/pkg/provider"
 	"github.com/paymog/slack-cli/pkg/provider/edge"
 	"github.com/paymog/slack-cli/pkg/server/auth"
 	"github.com/paymog/slack-cli/pkg/text"
-	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	slackGoUtil "github.com/takara2314/slack-go-util"
 	"go.uber.org/zap"
@@ -203,6 +203,22 @@ func (ch *ConversationsHandler) UsersResource(ctx context.Context, request mcp.R
 	}, nil
 }
 
+func addMessageResultJSON(channel, threadTS, timestamp string) (string, error) {
+	result, err := json.Marshal(struct {
+		Channel  string `json:"channel"`
+		ThreadTS string `json:"thread_ts,omitempty"`
+		TS       string `json:"ts"`
+	}{
+		Channel:  channel,
+		ThreadTS: threadTS,
+		TS:       timestamp,
+	})
+	if err != nil {
+		return "", fmt.Errorf("marshal add-message result: %w", err)
+	}
+	return string(result), nil
+}
+
 // ConversationsAddMessageHandler posts a message and returns a confirmation
 func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ch.logger.Debug("ConversationsAddMessageHandler called", zap.Any("params", request.Params))
@@ -278,10 +294,11 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 		}
 	}
 
-	if params.threadTs != "" {
-		return mcp.NewToolResultText(fmt.Sprintf("Successfully posted message to channel %s in thread %s (ts=%s)", respChannel, params.threadTs, respTimestamp)), nil
+	result, err := addMessageResultJSON(respChannel, params.threadTs, respTimestamp)
+	if err != nil {
+		return nil, err
 	}
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully posted message to channel %s (ts=%s)", respChannel, respTimestamp)), nil
+	return mcp.NewToolResultText(result), nil
 }
 
 // ReactionsAddHandler adds an emoji reaction to a message

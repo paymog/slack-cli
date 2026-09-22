@@ -68,19 +68,28 @@ func TestUnitPrintEmptyTableIsEmptyArray(t *testing.T) {
 	}
 }
 
-func TestUnitPrintSingleColumnIsVerbatim(t *testing.T) {
-	// "No users found." is a one-column line, not a gocsv table; even with the
-	// tabular flag set it must pass through untouched.
-	msg := "No users found matching the query."
-	if got := strings.TrimSpace(run(t, msg, false, true)); got != msg {
-		t.Fatalf("status line altered: %q", got)
+func TestUnitPrintSingleColumnAsJSONMessage(t *testing.T) {
+	// "No users found." is a one-column line, not a gocsv table. JSON mode
+	// still guarantees valid JSON for callers instead of leaking plain text.
+	got := run(t, "No users found matching the query.", false, true)
+	var result map[string]string
+	if err := json.Unmarshal([]byte(got), &result); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, got)
+	}
+	if result["message"] != "No users found matching the query." {
+		t.Fatalf("status message altered: %q", result["message"])
 	}
 }
 
-func TestUnitPrintPlainTextVerbatim(t *testing.T) {
+func TestUnitPrintPlainTextAsJSONMessage(t *testing.T) {
 	msg := "Successfully posted message to channel C123 (ts=1.2)"
-	if got := strings.TrimSpace(run(t, msg, false, false)); got != msg {
-		t.Fatalf("plain text altered: %q", got)
+	got := run(t, msg, false, false)
+	var result map[string]string
+	if err := json.Unmarshal([]byte(got), &result); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, got)
+	}
+	if result["message"] != msg {
+		t.Fatalf("plain text altered: %q", result["message"])
 	}
 }
 
@@ -106,12 +115,17 @@ func TestUnitPrintRawIsVerbatim(t *testing.T) {
 	}
 }
 
-func TestUnitPrintCSVNotConvertedWithoutTabular(t *testing.T) {
-	// Defensive: a non-tabular handler's output is never reinterpreted as a
-	// table, even if it happens to be comma-separated.
+func TestUnitPrintCSVWithoutTabularFlagAsJSONMessage(t *testing.T) {
+	// A non-tabular handler's output is never reinterpreted as a table, even if
+	// it happens to be comma-separated; it still obeys the JSON contract.
 	csv := "ID,Name\nC1,#g"
-	if got := strings.TrimSpace(run(t, csv, false, false)); got != csv {
-		t.Fatalf("CSV converted without tabular flag: %q", got)
+	got := run(t, csv, false, false)
+	var result map[string]string
+	if err := json.Unmarshal([]byte(got), &result); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, got)
+	}
+	if result["message"] != csv {
+		t.Fatalf("CSV status altered: %q", result["message"])
 	}
 }
 

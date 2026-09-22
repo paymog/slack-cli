@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
@@ -12,11 +13,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/paymog/slack-cli/pkg/test/util"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/responses"
+	"github.com/paymog/slack-cli/pkg/test/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -652,4 +653,17 @@ func TestUnitIsSlackUserIDPrefix(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUnitAddMessageResultJSON(t *testing.T) {
+	result, err := addMessageResultJSON("C123", "1700.1", "1700.2")
+	require.NoError(t, err)
+
+	var payload map[string]string
+	require.NoError(t, json.Unmarshal([]byte(result), &payload))
+	assert.Equal(t, map[string]string{
+		"channel":   "C123",
+		"thread_ts": "1700.1",
+		"ts":        "1700.2",
+	}, payload)
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/paymog/slack-cli/internal/config"
 	"github.com/paymog/slack-cli/internal/credstore"
+	"github.com/paymog/slack-cli/internal/output"
 	"github.com/paymog/slack-cli/internal/runtime"
 	"github.com/paymog/slack-cli/pkg/provider"
 	"github.com/spf13/cobra"
@@ -38,9 +39,9 @@ func newAuthCommand(cfg *config.Config) *cobra.Command {
 	}
 	cmd.AddCommand(
 		authLoginCommand(cfg),
-		authListCommand(),
-		authDefaultCommand(),
-		authLogoutCommand(),
+		authListCommand(cfg),
+		authDefaultCommand(cfg),
+		authLogoutCommand(cfg),
 		authTokenCommand(cfg),
 		authStatusCommand(cfg),
 	)
@@ -102,11 +103,19 @@ func authLoginCommand(cfg *config.Config) *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Saved profile %q (%s, team %s)\n", name, modeLabel(tok), teamID)
-			if first {
-				fmt.Fprintln(cmd.OutOrStdout(), "  Set as default profile")
+			if cfg.Raw {
+				fmt.Fprintf(cmd.OutOrStdout(), "Saved profile %q (%s, team %s)\n", name, modeLabel(tok), teamID)
+				if first {
+					fmt.Fprintln(cmd.OutOrStdout(), "  Set as default profile")
+				}
+				return nil
 			}
-			return nil
+			return output.WriteJSON(cmd.OutOrStdout(), struct {
+				Profile string `json:"profile"`
+				Mode    string `json:"mode"`
+				TeamID  string `json:"team_id"`
+				Default bool   `json:"default"`
+			}{Profile: name, Mode: modeLabel(tok), TeamID: teamID, Default: first})
 		},
 	}
 	f := cmd.Flags()
@@ -119,7 +128,7 @@ func authLoginCommand(cfg *config.Config) *cobra.Command {
 	return cmd
 }
 
-func authListCommand() *cobra.Command {
+func authListCommand(cfg *config.Config) *cobra.Command {
 	return &cobra.Command{
 		Use:         "list",
 		Short:       "List configured profiles",
@@ -130,26 +139,42 @@ func authListCommand() *cobra.Command {
 				return err
 			}
 			names := store.Names()
-			if len(names) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No profiles configured. Run `slack-cli auth login`.")
-				return nil
-			}
-			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "\tPROFILE\tMODE\tGOVSLACK")
-			for _, n := range names {
-				marker := " "
-				if n == store.Default {
-					marker = "*"
+			if cfg.Raw {
+				if len(names) == 0 {
+					fmt.Fprintln(cmd.OutOrStdout(), "No profiles configured. Run `slack-cli auth login`.")
+					return nil
 				}
-				p := store.Profiles[n]
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%t\n", marker, n, p.Mode, p.GovSlack)
+				tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+				fmt.Fprintln(tw, "\tPROFILE\tMODE\tGOVSLACK")
+				for _, name := range names {
+					marker := " "
+					if name == store.Default {
+						marker = "*"
+					}
+					profile := store.Profiles[name]
+					fmt.Fprintf(tw, "%s\t%s\t%s\t%t\n", marker, name, profile.Mode, profile.GovSlack)
+				}
+				return tw.Flush()
 			}
-			return tw.Flush()
+			type profileResult struct {
+				Profile  string `json:"profile"`
+				Mode     string `json:"mode"`
+				GovSlack bool   `json:"govslack"`
+				Default  bool   `json:"default"`
+			}
+			results := make([]profileResult, 0, len(names))
+			for _, name := range names {
+				profile := store.Profiles[name]
+				results = append(results, profileResult{
+					Profile: name, Mode: profile.Mode, GovSlack: profile.GovSlack, Default: name == store.Default,
+				})
+			}
+			return output.WriteJSON(cmd.OutOrStdout(), results)
 		},
 	}
 }
 
-func authDefaultCommand() *cobra.Command {
+func authDefaultCommand(cfg *config.Config) *cobra.Command {
 	return &cobra.Command{
 		Use:         "default <name>",
 		Short:       "Set the default profile",
@@ -163,13 +188,18 @@ func authDefaultCommand() *cobra.Command {
 			if err := store.SetDefault(args[0]); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Default profile set to %q\n", args[0])
-			return nil
+			if cfg.Raw {
+				fmt.Fprintf(cmd.OutOrStdout(), "Default profile set to %q\n", args[0])
+				return nil
+			}
+			return output.WriteJSON(cmd.OutOrStdout(), struct {
+				DefaultProfile string `json:"default_profile"`
+			}{DefaultProfile: args[0]})
 		},
 	}
 }
 
-func authLogoutCommand() *cobra.Command {
+func authLogoutCommand(cfg *config.Config) *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:         "logout <name>",
@@ -191,15 +221,27 @@ func authLogoutCommand() *cobra.Command {
 					return err
 				}
 				if !ok {
-					fmt.Fprintln(cmd.OutOrStdout(), "Aborted")
-					return nil
+					if cfg.Raw {
+						fmt.Fprintln(cmd.OutOrStdout(), "Aborted")
+						return nil
+					}
+					return output.WriteJSON(cmd.OutOrStdout(), struct {
+						Profile string `json:"profile"`
+						Removed bool   `json:"removed"`
+					}{Profile: name})
 				}
 			}
 			if err := store.Remove(name); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Removed profile %q\n", name)
-			return nil
+			if cfg.Raw {
+				fmt.Fprintf(cmd.OutOrStdout(), "Removed profile %q\n", name)
+				return nil
+			}
+			return output.WriteJSON(cmd.OutOrStdout(), struct {
+				Profile string `json:"profile"`
+				Removed bool   `json:"removed"`
+			}{Profile: name, Removed: true})
 		},
 	}
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation prompt")
@@ -214,12 +256,28 @@ func authTokenCommand(cfg *config.Config) *cobra.Command {
 			if err := cfg.RequireAuth(); err != nil {
 				return err
 			}
-			out := cmd.OutOrStdout()
-			emitToken(out, "SLACK_MCP_XOXP_TOKEN", cfg.XOXP)
-			emitToken(out, "SLACK_MCP_XOXB_TOKEN", cfg.XOXB)
-			emitToken(out, "SLACK_MCP_XOXC_TOKEN", cfg.XOXC)
-			emitToken(out, "SLACK_MCP_XOXD_TOKEN", cfg.XOXD)
-			return nil
+			if cfg.Raw {
+				out := cmd.OutOrStdout()
+				emitToken(out, "SLACK_MCP_XOXP_TOKEN", cfg.XOXP)
+				emitToken(out, "SLACK_MCP_XOXB_TOKEN", cfg.XOXB)
+				emitToken(out, "SLACK_MCP_XOXC_TOKEN", cfg.XOXC)
+				emitToken(out, "SLACK_MCP_XOXD_TOKEN", cfg.XOXD)
+				return nil
+			}
+			tokens := map[string]string{}
+			if cfg.XOXP != "" {
+				tokens["SLACK_MCP_XOXP_TOKEN"] = cfg.XOXP
+			}
+			if cfg.XOXB != "" {
+				tokens["SLACK_MCP_XOXB_TOKEN"] = cfg.XOXB
+			}
+			if cfg.XOXC != "" {
+				tokens["SLACK_MCP_XOXC_TOKEN"] = cfg.XOXC
+			}
+			if cfg.XOXD != "" {
+				tokens["SLACK_MCP_XOXD_TOKEN"] = cfg.XOXD
+			}
+			return output.WriteJSON(cmd.OutOrStdout(), tokens)
 		},
 	}
 }
@@ -229,32 +287,49 @@ func authStatusCommand(cfg *config.Config) *cobra.Command {
 		Use:   "status",
 		Short: "Show the resolved credential source and auth mode",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			out := cmd.OutOrStdout()
+			source := "none"
+			profile := ""
 			switch {
 			case cfg.HasExplicitEnv():
-				fmt.Fprintln(out, "Source: SLACK_MCP_* environment variables")
+				source = "environment"
 			case cfg.Profile != "":
-				fmt.Fprintf(out, "Source: profile %q (--profile)\n", cfg.Profile)
+				source = "profile"
+				profile = cfg.Profile
 			default:
 				store, err := credstore.Load()
 				if err != nil {
 					return err
 				}
 				if store.Default != "" {
-					fmt.Fprintf(out, "Source: default profile %q\n", store.Default)
-				} else {
-					fmt.Fprintln(out, "Source: none (no profile and no SLACK_MCP_* env)")
+					source = "default_profile"
+					profile = store.Default
 				}
 			}
-			fmt.Fprintf(out, "Auth mode: %s\n", cfg.Mode())
-			fmt.Fprintf(out, "GovSlack: %t\n", cfg.GovSlack)
-			if err := cfg.RequireAuth(); err != nil {
-				fmt.Fprintln(out, "Credentials: (not configured)")
-			} else {
-				fmt.Fprintln(out, "Credentials: configured")
+			configured := cfg.RequireAuth() == nil
+			if cfg.Raw {
+				out := cmd.OutOrStdout()
+				fmt.Fprintf(out, "Source: %s", source)
+				if profile != "" {
+					fmt.Fprintf(out, " %q", profile)
+				}
+				fmt.Fprintln(out)
+				fmt.Fprintf(out, "Auth mode: %s\n", cfg.Mode())
+				fmt.Fprintf(out, "GovSlack: %t\n", cfg.GovSlack)
+				fmt.Fprintf(out, "Credentials configured: %t\n", configured)
+				fmt.Fprintf(out, "Keyring available: %t\n", credstore.Available())
+				return nil
 			}
-			fmt.Fprintf(out, "Keyring available: %t\n", credstore.Available())
-			return nil
+			return output.WriteJSON(cmd.OutOrStdout(), struct {
+				Source                string `json:"source"`
+				Profile               string `json:"profile,omitempty"`
+				Mode                  string `json:"mode"`
+				GovSlack              bool   `json:"govslack"`
+				CredentialsConfigured bool   `json:"credentials_configured"`
+				KeyringAvailable      bool   `json:"keyring_available"`
+			}{
+				Source: source, Profile: profile, Mode: cfg.Mode(), GovSlack: cfg.GovSlack,
+				CredentialsConfigured: configured, KeyringAvailable: credstore.Available(),
+			})
 		},
 	}
 }

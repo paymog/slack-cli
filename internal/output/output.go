@@ -9,18 +9,16 @@ import (
 	"strings"
 )
 
-// Print writes a tool's text result.
+// Print writes a tool's text result as JSON by default.
 //
 // Upstream tool handlers return one of three shapes: a JSON document, a CSV
-// table (gocsv), or a plain-text status line ("Successfully posted ..."). To
-// keep the output jq-friendly the CLI normalizes the first two to JSON:
+// table (gocsv), or a plain-text status line ("Successfully posted ..."). The
+// CLI normalizes every non-empty result to valid JSON:
 //   - Valid JSON is re-indented (field order preserved).
 //   - When tabular is set, CSV is parsed into a JSON array of row objects.
-//   - Everything else (status lines, "No users found.", file dumps) is written
-//     verbatim with a single trailing newline.
+//   - Everything else becomes {"message":"..."}.
 //
-// raw bypasses all of this and writes the handler output byte-for-byte, which
-// is the escape hatch for callers that still want the original CSV/text.
+// raw bypasses all of this and writes the handler output byte-for-byte.
 // Empty output prints nothing.
 //
 // tabular is opt-in per command (see internal/cmds): only handlers known to
@@ -50,8 +48,18 @@ func Print(w io.Writer, text string, raw, tabular bool) error {
 		}
 	}
 
-	_, err := fmt.Fprintln(w, trimmed)
-	return err
+	return WriteJSON(w, struct {
+		Message string `json:"message"`
+	}{Message: trimmed})
+}
+
+// WriteJSON encodes a successful command result using the CLI's default
+// machine-readable output contract.
+func WriteJSON(w io.Writer, value any) error {
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	return enc.Encode(value)
 }
 
 // printJSON writes jsonBytes re-indented with two spaces and a trailing
