@@ -251,7 +251,7 @@ func authLogoutCommand(cfg *config.Config) *cobra.Command {
 func authTokenCommand(cfg *config.Config) *cobra.Command {
 	return &cobra.Command{
 		Use:   "token",
-		Short: "Print the resolved tokens as SLACK_MCP_* env lines",
+		Short: "Print the resolved tokens as a JSON object",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := cfg.RequireAuth(); err != nil {
 				return err
