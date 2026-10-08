@@ -252,6 +252,8 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 		case "text/plain":
 			options = append(options, slack.MsgOptionDisableMarkdown())
 			options = append(options, slack.MsgOptionText(params.text, false))
+		case "text/mrkdwn":
+			options = append(options, slack.MsgOptionText(params.text, false))
 		case "text/markdown":
 			blocks, err := slackGoUtil.ConvertMarkdownTextToBlocks(params.text)
 			if err != nil {
@@ -262,7 +264,7 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 				options = append(options, slack.MsgOptionBlocks(blocks...))
 			}
 		default:
-			return nil, errors.New("content_type must be either 'text/plain' or 'text/markdown'")
+			return nil, errors.New("content_type must be 'text/plain', 'text/markdown', or 'text/mrkdwn'")
 		}
 	}
 
@@ -1807,9 +1809,9 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 	}
 
 	contentType := request.GetString("content_type", "text/markdown")
-	if contentType != "text/plain" && contentType != "text/markdown" {
+	if contentType != "text/plain" && contentType != "text/markdown" && contentType != "text/mrkdwn" {
 		ch.logger.Error("Invalid content_type", zap.String("content_type", contentType))
-		return nil, errors.New("content_type must be either 'text/plain' or 'text/markdown'")
+		return nil, errors.New("content_type must be 'text/plain', 'text/markdown', or 'text/mrkdwn'")
 	}
 
 	// Parse optional raw blocks JSON. Accepts blocks as either:

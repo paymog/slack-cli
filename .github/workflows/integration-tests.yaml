@@ -1,9 +1,6 @@
 name: Integration Tests
 on:
-  push:
-    branches:
-      - master
-  pull_request_target:
+  # Requires dedicated Slack, OpenAI, and ngrok credentials.
   workflow_dispatch:
 
 permissions:

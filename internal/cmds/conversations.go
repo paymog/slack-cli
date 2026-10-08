@@ -1,6 +1,9 @@
 package cmds
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/paymog/slack-cli/internal/config"
 	"github.com/paymog/slack-cli/internal/runtime"
 	"github.com/paymog/slack-cli/pkg/handler"
@@ -138,12 +141,19 @@ func conversationsSearchCommand(cfg *config.Config) *cobra.Command {
 }
 
 func conversationsAddCommand(cfg *config.Config) *cobra.Command {
-	var text, threadTS, contentType, blocks string
+	var text, textFile, threadTS, contentType, blocks string
 	cmd := &cobra.Command{
 		Use:   "add <channel>",
 		Short: "Post a message (requires SLACK_MCP_ADD_MESSAGE_TOOL)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("text-file") {
+				body, err := os.ReadFile(textFile)
+				if err != nil {
+					return fmt.Errorf("read --text-file: %w", err)
+				}
+				text = string(body)
+			}
 			p, logger, err := runtime.PrepareRead(cmd.Context(), cfg)
 			if err != nil {
 				return err
@@ -160,10 +170,12 @@ func conversationsAddCommand(cfg *config.Config) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVarP(&text, "text", "t", "", "message text (text/markdown or text/plain)")
+	f.StringVarP(&text, "text", "t", "", "message text in the specified content type")
+	f.StringVar(&textFile, "text-file", "", "read message text from a UTF-8 file without shell interpolation")
 	f.StringVar(&threadTS, "thread-ts", "", "post into this thread (timestamp 1234567890.123456)")
-	f.StringVar(&contentType, "content-type", "text/markdown", "text/markdown or text/plain")
+	f.StringVar(&contentType, "content-type", "text/markdown", "text/markdown (Block Kit), text/mrkdwn (native Slack text), or text/plain")
 	f.StringVar(&blocks, "blocks", "", "raw Slack Block Kit JSON array (overrides text rendering)")
+	cmd.MarkFlagsMutuallyExclusive("text", "text-file")
 	return cmd
 }
 
