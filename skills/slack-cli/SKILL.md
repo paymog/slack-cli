@@ -125,7 +125,8 @@ agent never posts or mutates by accident. The allowlist forms (`C123,D456`, or
 `!C123` for all-except) restrict which channels are writable.
 
 ```sh
-SLACK_MCP_ADD_MESSAGE_TOOL=true  slack-cli conversations add <channel> -t "hello" [--thread-ts 123.456] [--content-type text/markdown|text/plain]
+SLACK_MCP_ADD_MESSAGE_TOOL=true  slack-cli conversations add <channel> -t "hello" [--thread-ts 123.456] [--content-type text/mrkdwn|text/markdown|text/plain]
+SLACK_MCP_ADD_MESSAGE_TOOL=true  slack-cli conversations add <channel> --text-file /tmp/reply.txt --content-type text/mrkdwn
 SLACK_MCP_ADD_MESSAGE_TOOL=true  slack-cli conversations add <channel> --blocks '<Block Kit JSON array>'
 SLACK_MCP_MARK_TOOL=true         slack-cli conversations mark <channel> [--ts 123.456]
 SLACK_MCP_REACTION_TOOL=true     slack-cli reactions add <channel> <timestamp> --emoji rocket
@@ -139,27 +140,29 @@ slack-cli saved clear-completed
 
 ## Critical: multi-line / formatted posts
 
-**Default for any multi-line, bulleted, or code-heavy post: use `--blocks` (Block Kit), not `-t`.**
+**Default for conversational replies: native Slack message text, read from a file.**
 
-Plain `-t` is fine for one-liners. For anything with newlines, bullets, code fences, or backticks:
-
-1. Prefer `--blocks '<Block Kit JSON array>'` so Slack renders headers/sections/dividers as separate blocks.
-2. Pass the payload via an **env var** (or file read into env) — never a shell heredoc, never inline text with backticks.
-3. Put real `\n` inside each block's `mrkdwn` text. Do not rely on markdown `-t` preserving newlines through the agent shell.
+Write the body to a UTF-8 file with your file-writing tool, using actual line
+breaks. Then pass only its path to the shell:
 
 ```sh
-# GOOD — Block Kit via env (newlines + backticks survive)
-BLOCKS='[{"type":"section","text":{"type":"mrkdwn","text":"line1\n• bullet\n• bullet2"}}]'
-SLACK_MCP_ADD_MESSAGE_TOOL=true slack-cli conversations add C123 --thread-ts 123.456 --blocks "$BLOCKS"
-
-# BAD — heredoc / inline markdown with backticks
-# Shell treats `...` as command substitution; bullets collapse; partial garbage posts.
-SLACK_MCP_ADD_MESSAGE_TOOL=true slack-cli conversations add C123 -t "$(cat <<'EOF'
-# title with `code`
-• bullet
-EOF
-)"
+SLACK_MCP_ADD_MESSAGE_TOOL=C123 slack-cli conversations add C123 \
+  --thread-ts 123.456 --text-file /tmp/reply.txt --content-type text/mrkdwn
 ```
+
+- `--text-file` preserves newlines, backticks, dollar signs, and literal `\n`
+  examples without shell interpolation. It cannot be combined with `--text`.
+- `text/mrkdwn` posts ordinary Slack-formatted text without Block Kit. Use
+  `*bold*`, `_italic_`, `<https://example.com|label>`, and backticks for code;
+  use bullets rather than Markdown tables or `#` headings.
+- The default `text/markdown` converts GitHub-style Markdown into Block Kit;
+  it is not native Slack text. `text/plain` disables formatting.
+- Reserve `--blocks` for interactive or deliberately structured UI. Newlines,
+  bullets, and code alone do not require blocks.
+- Inline `-t` is fine for simple one-liners. Do not embed multiline bodies in
+  shell commands: `-t "first\nsecond"` sends literal `\n`, not a line break.
+- Keep answers concise; split long answers at paragraph boundaries. Native
+  text avoids section-block collapse, but Slack can still collapse long messages.
 
 ### Delete a botched post
 
@@ -183,7 +186,8 @@ After posting multi-line content, re-read the thread and check for:
 - missing newlines after headers/code fences
 - truncated or shell-error fragments (`command not found`, half-eaten backticks)
 
-If any of those appear, delete via `chat.delete` and repost with `--blocks`.
+If any of those appear, fix the source file, delete via `chat.delete`, and
+repost with `--text-file … --content-type text/mrkdwn`.
 
 
 ## Recipes
@@ -227,9 +231,9 @@ slack-cli attachments get F0123ABCD | jq -r .content | base64 --decode > avatar.
   browser tokens.
 - **slow first run** — the initial `cache refresh` (or first read with no cache)
   crawls the whole workspace; subsequent calls read the cached file.
-- **multi-line post looks mangled (bullets on one line / backticks executed)** —
-  shell ate the body. Do **not** use heredocs or inline `-t` with backticks for
-  multi-line posts. Use `--blocks` + env-var JSON (see **Critical: multi-line /
-  formatted posts** above). Delete the bad message with `chat.delete`, then repost.
+- **multi-line post looks mangled (literal `\n` / backticks executed)** —
+  the shell received escaped or interpolated content. Write actual newlines to
+  a file with your file tool, then use `--text-file … --content-type text/mrkdwn`.
+  Delete the bad message with `chat.delete`, then repost.
 - **need to delete a message** — no CLI subcommand; call `https://slack.com/api/chat.delete`
   with the xoxp token from `slack-cli auth token` (see recipe above).

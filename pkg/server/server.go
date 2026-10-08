@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 	"github.com/paymog/slack-cli/pkg/handler"
 	"github.com/paymog/slack-cli/pkg/provider"
 	"github.com/paymog/slack-cli/pkg/server/auth"
 	"github.com/paymog/slack-cli/pkg/text"
 	"github.com/paymog/slack-cli/pkg/version"
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 	"go.uber.org/zap"
 )
 
@@ -193,7 +193,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			),
 			mcp.WithString("content_type",
 				mcp.DefaultString("text/markdown"),
-				mcp.Description("Content type of the message. Default is 'text/markdown'. Allowed values: 'text/markdown', 'text/plain'. Ignored when blocks is provided."),
+				mcp.Description("Content type of the message. Default 'text/markdown' converts Markdown to Block Kit. 'text/mrkdwn' posts native Slack-formatted message text without blocks; 'text/plain' disables formatting. Ignored when blocks is provided."),
 			),
 			mcp.WithString("blocks",
 				mcp.Description("Raw Slack Block Kit JSON array for rich message formatting (rich_text lists, code blocks, etc.). When provided, this takes precedence over text/content_type for rendering. The text parameter becomes the notification fallback text."),

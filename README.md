@@ -187,6 +187,22 @@ SLACK_MCP_REACTION_TOOL=true       slack-cli reactions add <channel> <ts> --emoj
 SLACK_MCP_REACTION_TOOL=true       slack-cli reactions remove <channel> <ts> --emoji rocket
 ```
 
+For conversational replies, write native Slack formatting to a UTF-8 file
+and post it without passing the body through the shell:
+
+```sh
+SLACK_MCP_ADD_MESSAGE_TOOL=C123 slack-cli conversations add C123 \
+  --thread-ts 123.456 --text-file /tmp/reply.txt --content-type text/mrkdwn
+```
+
+`--text-file` preserves the file's newlines and special characters and is
+mutually exclusive with `--text`. `text/mrkdwn` sends ordinary Slack message
+text (use `*bold*`, `<url|label>`, and backticks), without Block Kit. The default
+`text/markdown` converts Markdown into Block Kit; `text/plain` disables formatting.
+Use `--blocks` for interactive UI rather than ordinary replies. Keep long
+answers concise or split them at paragraph boundaries; Slack may still collapse
+long messages.
+
 ## Output
 
 Successful commands print valid JSON by default. Table results (channels,
