@@ -82,7 +82,7 @@ func conversationsRepliesCommand(cfg *config.Config) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&limit, "limit", "1d", "time window or message count; pass --limit='' with --cursor")
+	f.StringVar(&limit, "limit", "", "time window (1d,1w,30d) or message count; default: the whole thread")
 	f.StringVar(&cursor, "cursor", "", "pagination cursor from a previous page")
 	f.BoolVar(&activity, "activity", false, "include activity messages (joins/leaves)")
 	return cmd

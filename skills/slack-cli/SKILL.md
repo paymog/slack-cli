@@ -88,8 +88,9 @@ slack-cli channels me                      # channels you belong to
 
 # Conversation history & threads
 slack-cli conversations history <channel> [--limit 1d|1w|30d|<count>] [--cursor C] [--activity]
-slack-cli conversations replies <channel> <thread_ts>
+slack-cli conversations replies <channel> <thread_ts>   # whole thread by default; --limit 1d|<count> narrows it
 # Pagination: read the Cursor field of the last element, then pass --limit='' --cursor <value>.
+# A Cursor on a default replies call means the thread was cut short (size cap or timeout).
 # Unlisted Slack apps: 1 req/min and 15 msgs/page on history/replies. The CLI waits
 # Retry-After and shares the slot across processes. Set SLACK_MCP_UNLISTED_HISTORY=1
 # to force that cap. Default --timeout is 2m. Do not hammer these in a loop.

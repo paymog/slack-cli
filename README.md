@@ -125,8 +125,11 @@ Unlisted (non-Marketplace) Slack apps are capped at **1 req/min and 15
 messages/page** on `conversations.history` / `conversations.replies`. The CLI
 caps the page, waits `Retry-After`, and shares that 1/min slot across processes
 via a file in the cache dir. Set `SLACK_MCP_UNLISTED_HISTORY=1` to force that
-tier without waiting for a 429; `=0` disables it. Paginate with `--cursor` for
-the rest of the thread. Default `--timeout` is 2m so one wait fits.
+tier without waiting for a 429; `=0` disables it. `conversations replies` with
+no `--limit` pages through the whole thread itself; under the unlisted tier each
+extra page waits for that slot, so a thread longer than one page may stop at
+the `--timeout` and return what it has, with the resume `Cursor` on the last
+row. Default `--timeout` is 2m so one wait fits.
 
 ## Cache
 
@@ -151,7 +154,7 @@ slack-cli channels me
 
 # Conversations
 slack-cli conversations history <channel> [--limit 1d] [--cursor C] [--activity]
-slack-cli conversations replies <channel> <thread_ts>
+slack-cli conversations replies <channel> <thread_ts> [--limit 1d|<count>] [--cursor C]   # default: whole thread
 slack-cli conversations search [query] [--in-channel #general] [--from @user] [--after 2024-01-01]
 slack-cli conversations unreads [--types all] [--mentions-only]
 slack-cli conversations join <channel>

@@ -30,7 +30,11 @@ import (
 const (
 	defaultConversationsNumericLimit    = 50
 	defaultConversationsExpressionLimit = "1d"
-	maxFileSizeBytes                    = 5 * 1024 * 1024 // 5MB limit
+	// Full-thread replies: Slack's per-page maximum (the unlisted-app tier caps
+	// it further), and a bound so a runaway thread cannot page forever.
+	fullThreadPageSize    = 1000
+	maxFullThreadMessages = 5000
+	maxFileSizeBytes      = 5 * 1024 * 1024 // 5MB limit
 )
 
 var validFilterKeys = map[string]struct{}{
@@ -606,7 +610,28 @@ func (ch *ConversationsHandler) ConversationsRepliesHandler(ctx context.Context,
 		Cursor:    params.cursor,
 		Inclusive: false,
 	}
-	replies, hasMore, nextCursor, err := ch.apiProvider.Slack().GetConversationRepliesContext(ctx, &repliesParams)
+	fetch := func(cursor string) ([]slack.Message, bool, string, error) {
+		p := repliesParams
+		p.Cursor = cursor
+		return ch.apiProvider.Slack().GetConversationRepliesContext(ctx, &p)
+	}
+
+	var (
+		replies    []slack.Message
+		nextCursor string
+	)
+	// No limit and no cursor: return the whole thread. A time window would drop
+	// older replies, and a single page would silently truncate long threads.
+	if request.GetString("limit", "") == "" && params.cursor == "" {
+		repliesParams.Limit = fullThreadPageSize
+		replies, nextCursor, err = collectThreadReplies(fetch, maxFullThreadMessages)
+	} else {
+		var hasMore bool
+		replies, hasMore, nextCursor, err = fetch(params.cursor)
+		if !hasMore {
+			nextCursor = ""
+		}
+	}
 	if err != nil {
 		ch.logger.Error("GetConversationRepliesContext failed", zap.Error(err))
 		return nil, err
@@ -614,10 +639,49 @@ func (ch *ConversationsHandler) ConversationsRepliesHandler(ctx context.Context,
 	ch.logger.Debug("Fetched conversation replies", zap.Int("count", len(replies)))
 
 	messages := ch.convertMessagesFromHistory(ctx, replies, params.channel, params.activity)
-	if len(messages) > 0 && hasMore {
+	if len(messages) > 0 && nextCursor != "" {
 		messages[len(messages)-1].Cursor = nextCursor
 	}
 	return marshalMessagesToCSV(messages)
+}
+
+// collectThreadReplies pages through a thread until Slack reports no more
+// replies or maxMessages is reached. Pages may repeat the parent message, so
+// messages are de-duplicated by timestamp. When a later page fails, the replies
+// collected so far are returned with the cursor that resumes at the failed page;
+// a first-page failure is returned as an error.
+func collectThreadReplies(
+	fetch func(cursor string) ([]slack.Message, bool, string, error),
+	maxMessages int,
+) ([]slack.Message, string, error) {
+	var (
+		all    []slack.Message
+		cursor string
+	)
+	seen := map[string]bool{}
+	for {
+		page, hasMore, next, err := fetch(cursor)
+		if err != nil {
+			if len(all) == 0 {
+				return nil, "", err
+			}
+			return all, cursor, nil
+		}
+		for _, m := range page {
+			if seen[m.Timestamp] {
+				continue
+			}
+			seen[m.Timestamp] = true
+			all = append(all, m)
+		}
+		if !hasMore || next == "" {
+			return all, "", nil
+		}
+		if len(all) >= maxMessages {
+			return all, next, nil
+		}
+		cursor = next
+	}
 }
 
 func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
