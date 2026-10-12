@@ -170,8 +170,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 				mcp.Description("Cursor for pagination. Use the value of the last row and column in the response as next_cursor field returned from the previous request."),
 			),
 			mcp.WithString("limit",
-				mcp.DefaultString("1d"),
-				mcp.Description("Limit of messages to fetch in format of maximum ranges of time (e.g. 1d - 1 day, 30d - 30 days, 90d - 90 days which is a default limit for free tier history) or number of messages (e.g. 50). Must be empty when 'cursor' is provided."),
+				mcp.Description("Optional. Omit to return the whole thread. Otherwise a time range (e.g. 1d - since the start of today, 30d - 30 days) or a number of messages (e.g. 50). Must be empty when 'cursor' is provided."),
 			),
 		), conversationsHandler.ConversationsRepliesHandler)
 	}
