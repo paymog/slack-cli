@@ -129,6 +129,7 @@ agent never posts or mutates by accident. The allowlist forms (`C123,D456`, or
 SLACK_MCP_ADD_MESSAGE_TOOL=true  slack-cli conversations add <channel> -t "hello" [--thread-ts 123.456] [--content-type text/mrkdwn|text/markdown|text/plain]
 SLACK_MCP_ADD_MESSAGE_TOOL=true  slack-cli conversations add <channel> --text-file /tmp/reply.txt --content-type text/mrkdwn
 SLACK_MCP_ADD_MESSAGE_TOOL=true  slack-cli conversations add <channel> --blocks '<Block Kit JSON array>'
+SLACK_MCP_ADD_MESSAGE_TOOL=true  slack-cli conversations edit <channel> <ts> --text-file /tmp/fix.txt --content-type text/mrkdwn   # replaces a message you posted; same flags as add, no --thread-ts
 SLACK_MCP_MARK_TOOL=true         slack-cli conversations mark <channel> [--ts 123.456]
 SLACK_MCP_REACTION_TOOL=true     slack-cli reactions add <channel> <timestamp> --emoji rocket
 SLACK_MCP_REACTION_TOOL=true     slack-cli reactions remove <channel> <timestamp> --emoji rocket

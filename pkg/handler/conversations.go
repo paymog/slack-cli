@@ -97,12 +97,23 @@ type searchParams struct {
 	page  int
 }
 
-type addMessageParams struct {
-	channel     string
-	threadTs    string
+// messageBody is the rendered content shared by posting and editing a message.
+type messageBody struct {
 	text        string
 	contentType string
 	blocks      []slack.Block
+}
+
+type addMessageParams struct {
+	channel  string
+	threadTs string
+	messageBody
+}
+
+type editMessageParams struct {
+	channel string
+	ts      string
+	messageBody
 }
 
 type addReactionParams struct {
@@ -243,34 +254,11 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 	if params.threadTs != "" {
 		options = append(options, slack.MsgOptionTS(params.threadTs))
 	}
-
-	if params.blocks != nil {
-		// Raw blocks provided: use them directly. If text is also provided, it
-		// serves as the notification/fallback text.
-		options = append(options, slack.MsgOptionBlocks(params.blocks...))
-		if params.text != "" {
-			options = append(options, slack.MsgOptionText(params.text, false))
-		}
-	} else {
-		switch params.contentType {
-		case "text/plain":
-			options = append(options, slack.MsgOptionDisableMarkdown())
-			options = append(options, slack.MsgOptionText(params.text, false))
-		case "text/mrkdwn":
-			options = append(options, slack.MsgOptionText(params.text, false))
-		case "text/markdown":
-			blocks, err := slackGoUtil.ConvertMarkdownTextToBlocks(params.text)
-			if err != nil {
-				ch.logger.Warn("Markdown parsing error", zap.Error(err))
-				options = append(options, slack.MsgOptionDisableMarkdown())
-				options = append(options, slack.MsgOptionText(params.text, false))
-			} else {
-				options = append(options, slack.MsgOptionBlocks(blocks...))
-			}
-		default:
-			return nil, errors.New("content_type must be 'text/plain', 'text/markdown', or 'text/mrkdwn'")
-		}
+	contentOptions, err := ch.messageContentOptions(params.messageBody, false)
+	if err != nil {
+		return nil, err
 	}
+	options = append(options, contentOptions...)
 
 	unfurlOpt := os.Getenv("SLACK_MCP_ADD_MESSAGE_UNFURLING")
 	if text.IsUnfurlingEnabled(params.text, unfurlOpt, ch.logger) {
@@ -305,6 +293,89 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 		return nil, err
 	}
 	return mcp.NewToolResultText(result), nil
+}
+
+// ConversationsEditMessageHandler replaces the content of an existing message
+// (chat.update). Only messages authored by the token's identity can be edited.
+func (ch *ConversationsHandler) ConversationsEditMessageHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ch.logger.Debug("ConversationsEditMessageHandler called", zap.Any("params", request.Params))
+
+	if ready, err := ch.apiProvider.IsReady(); !ready {
+		ch.logger.Error("API provider not ready", zap.Error(err))
+		return nil, err
+	}
+
+	params, err := ch.parseParamsToolEditMessage(ctx, request)
+	if err != nil {
+		ch.logger.Error("Failed to parse edit-message params", zap.Error(err))
+		return nil, err
+	}
+
+	// chat.update keeps the previous blocks when none are sent, so a text edit
+	// of a Block Kit message must clear them explicitly.
+	options, err := ch.messageContentOptions(params.messageBody, true)
+	if err != nil {
+		return nil, err
+	}
+
+	ch.logger.Debug("Editing Slack message",
+		zap.String("channel", params.channel),
+		zap.String("ts", params.ts),
+		zap.String("content_type", params.contentType),
+	)
+	respChannel, respTimestamp, _, err := ch.apiProvider.Slack().UpdateMessageContext(ctx, params.channel, params.ts, options...)
+	if err != nil {
+		ch.logger.Error("Slack UpdateMessageContext failed", zap.Error(err))
+		return nil, err
+	}
+
+	result, err := addMessageResultJSON(respChannel, "", respTimestamp)
+	if err != nil {
+		return nil, err
+	}
+	return mcp.NewToolResultText(result), nil
+}
+
+// messageContentOptions renders a message body. clearBlocks sends an empty
+// block set for text-only content so an edit drops previously posted blocks.
+func (ch *ConversationsHandler) messageContentOptions(body messageBody, clearBlocks bool) ([]slack.MsgOption, error) {
+	var options []slack.MsgOption
+	if body.blocks != nil {
+		// Raw blocks provided: use them directly. If text is also provided, it
+		// serves as the notification/fallback text.
+		options = append(options, slack.MsgOptionBlocks(body.blocks...))
+		if body.text != "" {
+			options = append(options, slack.MsgOptionText(body.text, false))
+		}
+		return options, nil
+	}
+	noBlocks := func() {
+		if clearBlocks {
+			options = append(options, slack.MsgOptionBlocks([]slack.Block{}...))
+		}
+	}
+	switch body.contentType {
+	case "text/plain":
+		noBlocks()
+		options = append(options, slack.MsgOptionDisableMarkdown())
+		options = append(options, slack.MsgOptionText(body.text, false))
+	case "text/mrkdwn":
+		noBlocks()
+		options = append(options, slack.MsgOptionText(body.text, false))
+	case "text/markdown":
+		blocks, err := slackGoUtil.ConvertMarkdownTextToBlocks(body.text)
+		if err != nil {
+			ch.logger.Warn("Markdown parsing error", zap.Error(err))
+			noBlocks()
+			options = append(options, slack.MsgOptionDisableMarkdown())
+			options = append(options, slack.MsgOptionText(body.text, false))
+		} else {
+			options = append(options, slack.MsgOptionBlocks(blocks...))
+		}
+	default:
+		return nil, errors.New("content_type must be 'text/plain', 'text/markdown', or 'text/mrkdwn'")
+	}
+	return options, nil
 }
 
 // ReactionsAddHandler adds an emoji reaction to a message
@@ -1829,35 +1900,9 @@ func (ch *ConversationsHandler) parseParamsToolConversations(ctx context.Context
 }
 
 func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, request mcp.CallToolRequest) (*addMessageParams, error) {
-	toolConfig := os.Getenv("SLACK_MCP_ADD_MESSAGE_TOOL")
-	enabledTools := os.Getenv("SLACK_MCP_ENABLED_TOOLS")
-
-	if toolConfig == "" {
-		if !strings.Contains(enabledTools, "conversations_add_message") {
-			ch.logger.Error("Add-message tool disabled by default")
-			return nil, errors.New(
-				"by default, the conversations_add_message tool is disabled to guard Slack workspaces against accidental spamming. " +
-					"To enable it, set the SLACK_MCP_ADD_MESSAGE_TOOL environment variable to true, 1, or comma separated list of channels " +
-					"to limit where the MCP can post messages, e.g. 'SLACK_MCP_ADD_MESSAGE_TOOL=C1234567890,D0987654321', 'SLACK_MCP_ADD_MESSAGE_TOOL=!C1234567890' " +
-					"to enable all except one or 'SLACK_MCP_ADD_MESSAGE_TOOL=true' for all channels and DMs",
-			)
-		}
-		toolConfig = "true"
-	}
-
-	channel := request.GetString("channel_id", "")
-	if channel == "" {
-		ch.logger.Error("channel_id missing in add-message params")
-		return nil, errors.New("channel_id must be a string")
-	}
-	channel, err := ch.resolveChannelID(ctx, channel)
+	channel, err := ch.authorizeMessageWrite(ctx, request, "conversations_add_message")
 	if err != nil {
-		ch.logger.Error("Channel not found", zap.String("channel", channel), zap.Error(err))
 		return nil, err
-	}
-	if !isChannelAllowed(channel) {
-		ch.logger.Warn("Add-message tool not allowed for channel", zap.String("channel", channel), zap.String("policy", toolConfig))
-		return nil, fmt.Errorf("conversations_add_message tool is not allowed for channel %q, applied policy: %s", channel, toolConfig)
 	}
 
 	threadTs := request.GetString("thread_ts", "")
@@ -1866,6 +1911,70 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 		return nil, errors.New("thread_ts must be a valid timestamp in format 1234567890.123456")
 	}
 
+	body, err := ch.parseMessageBody(request)
+	if err != nil {
+		return nil, err
+	}
+	return &addMessageParams{channel: channel, threadTs: threadTs, messageBody: body}, nil
+}
+
+func (ch *ConversationsHandler) parseParamsToolEditMessage(ctx context.Context, request mcp.CallToolRequest) (*editMessageParams, error) {
+	channel, err := ch.authorizeMessageWrite(ctx, request, "conversations_edit_message")
+	if err != nil {
+		return nil, err
+	}
+
+	ts := request.GetString("ts", "")
+	if !strings.Contains(ts, ".") {
+		ch.logger.Error("Invalid ts format", zap.String("ts", ts))
+		return nil, errors.New("ts is required and must be the message timestamp in format 1234567890.123456")
+	}
+
+	body, err := ch.parseMessageBody(request)
+	if err != nil {
+		return nil, err
+	}
+	return &editMessageParams{channel: channel, ts: ts, messageBody: body}, nil
+}
+
+// authorizeMessageWrite applies the SLACK_MCP_ADD_MESSAGE_TOOL policy shared by
+// posting and editing, and returns the resolved channel ID.
+func (ch *ConversationsHandler) authorizeMessageWrite(ctx context.Context, request mcp.CallToolRequest, tool string) (string, error) {
+	toolConfig := os.Getenv("SLACK_MCP_ADD_MESSAGE_TOOL")
+	enabledTools := os.Getenv("SLACK_MCP_ENABLED_TOOLS")
+
+	if toolConfig == "" {
+		if !strings.Contains(enabledTools, tool) {
+			ch.logger.Error("Message write tool disabled by default", zap.String("tool", tool))
+			return "", fmt.Errorf(
+				"by default, the %s tool is disabled to guard Slack workspaces against accidental spamming. "+
+					"To enable it, set the SLACK_MCP_ADD_MESSAGE_TOOL environment variable to true, 1, or comma separated list of channels "+
+					"to limit where the MCP can post or edit messages, e.g. 'SLACK_MCP_ADD_MESSAGE_TOOL=C1234567890,D0987654321', 'SLACK_MCP_ADD_MESSAGE_TOOL=!C1234567890' "+
+					"to enable all except one or 'SLACK_MCP_ADD_MESSAGE_TOOL=true' for all channels and DMs",
+				tool,
+			)
+		}
+		toolConfig = "true"
+	}
+
+	channel := request.GetString("channel_id", "")
+	if channel == "" {
+		ch.logger.Error("channel_id missing in message params", zap.String("tool", tool))
+		return "", errors.New("channel_id must be a string")
+	}
+	channel, err := ch.resolveChannelID(ctx, channel)
+	if err != nil {
+		ch.logger.Error("Channel not found", zap.String("channel", channel), zap.Error(err))
+		return "", err
+	}
+	if !isChannelAllowed(channel) {
+		ch.logger.Warn("Message write tool not allowed for channel", zap.String("tool", tool), zap.String("channel", channel), zap.String("policy", toolConfig))
+		return "", fmt.Errorf("%s tool is not allowed for channel %q, applied policy: %s", tool, channel, toolConfig)
+	}
+	return channel, nil
+}
+
+func (ch *ConversationsHandler) parseMessageBody(request mcp.CallToolRequest) (messageBody, error) {
 	msgText := request.GetString("text", "")
 	if msgText == "" {
 		// Backward compatibility with "payload" parameter
@@ -1875,7 +1984,7 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 	contentType := request.GetString("content_type", "text/markdown")
 	if contentType != "text/plain" && contentType != "text/markdown" && contentType != "text/mrkdwn" {
 		ch.logger.Error("Invalid content_type", zap.String("content_type", contentType))
-		return nil, errors.New("content_type must be 'text/plain', 'text/markdown', or 'text/mrkdwn'")
+		return messageBody{}, errors.New("content_type must be 'text/plain', 'text/markdown', or 'text/mrkdwn'")
 	}
 
 	// Parse optional raw blocks JSON. Accepts blocks as either:
@@ -1896,14 +2005,14 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 			blocksJSON, err = json.Marshal(v)
 			if err != nil {
 				ch.logger.Error("Failed to marshal blocks argument", zap.Error(err))
-				return nil, fmt.Errorf("blocks must be valid Slack Block Kit JSON: %w", err)
+				return messageBody{}, fmt.Errorf("blocks must be valid Slack Block Kit JSON: %w", err)
 			}
 		}
 		if blocksJSON != nil {
 			var slackBlocks slack.Blocks
 			if err := json.Unmarshal(blocksJSON, &slackBlocks); err != nil {
 				ch.logger.Error("Failed to parse blocks JSON", zap.Error(err))
-				return nil, fmt.Errorf("blocks must be valid Slack Block Kit JSON: %w", err)
+				return messageBody{}, fmt.Errorf("blocks must be valid Slack Block Kit JSON: %w", err)
 			}
 			blocks = slackBlocks.BlockSet
 		}
@@ -1912,16 +2021,10 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 	// Require either text or blocks
 	if msgText == "" && blocks == nil {
 		ch.logger.Error("Message text and blocks both missing")
-		return nil, errors.New("either text or blocks must be provided")
+		return messageBody{}, errors.New("either text or blocks must be provided")
 	}
 
-	return &addMessageParams{
-		channel:     channel,
-		threadTs:    threadTs,
-		text:        msgText,
-		contentType: contentType,
-		blocks:      blocks,
-	}, nil
+	return messageBody{text: msgText, contentType: contentType, blocks: blocks}, nil
 }
 
 func (ch *ConversationsHandler) parseParamsToolReaction(ctx context.Context, request mcp.CallToolRequest) (*addReactionParams, error) {

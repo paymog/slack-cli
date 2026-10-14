@@ -21,6 +21,7 @@ func newConversationsCommand(cfg *config.Config) *cobra.Command {
 		conversationsRepliesCommand(cfg),
 		conversationsSearchCommand(cfg),
 		conversationsAddCommand(cfg),
+		conversationsEditCommand(cfg),
 		conversationsMarkCommand(cfg),
 		conversationsUnreadsCommand(cfg),
 		conversationsJoinCommand(cfg),
@@ -173,6 +174,44 @@ func conversationsAddCommand(cfg *config.Config) *cobra.Command {
 	f.StringVarP(&text, "text", "t", "", "message text in the specified content type")
 	f.StringVar(&textFile, "text-file", "", "read message text from a UTF-8 file without shell interpolation")
 	f.StringVar(&threadTS, "thread-ts", "", "post into this thread (timestamp 1234567890.123456)")
+	f.StringVar(&contentType, "content-type", "text/markdown", "text/markdown (Block Kit), text/mrkdwn (native Slack text), or text/plain")
+	f.StringVar(&blocks, "blocks", "", "raw Slack Block Kit JSON array (overrides text rendering)")
+	cmd.MarkFlagsMutuallyExclusive("text", "text-file")
+	return cmd
+}
+
+func conversationsEditCommand(cfg *config.Config) *cobra.Command {
+	var text, textFile, contentType, blocks string
+	cmd := &cobra.Command{
+		Use:   "edit <channel> <ts>",
+		Short: "Replace the content of a message you posted (requires SLACK_MCP_ADD_MESSAGE_TOOL)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("text-file") {
+				body, err := os.ReadFile(textFile)
+				if err != nil {
+					return fmt.Errorf("read --text-file: %w", err)
+				}
+				text = string(body)
+			}
+			p, logger, err := runtime.PrepareRead(cmd.Context(), cfg)
+			if err != nil {
+				return err
+			}
+			h := handler.NewConversationsHandler(p, logger)
+			a := map[string]any{
+				"channel_id":   args[0],
+				"ts":           args[1],
+				"content_type": contentType,
+			}
+			putStr(a, "text", text)
+			putStr(a, "blocks", blocks)
+			return emit(cmd, cfg, "conversations_edit_message", h.ConversationsEditMessageHandler, a)
+		},
+	}
+	f := cmd.Flags()
+	f.StringVarP(&text, "text", "t", "", "replacement text in the specified content type")
+	f.StringVar(&textFile, "text-file", "", "read replacement text from a UTF-8 file without shell interpolation")
 	f.StringVar(&contentType, "content-type", "text/markdown", "text/markdown (Block Kit), text/mrkdwn (native Slack text), or text/plain")
 	f.StringVar(&blocks, "blocks", "", "raw Slack Block Kit JSON array (overrides text rendering)")
 	cmd.MarkFlagsMutuallyExclusive("text", "text-file")
