@@ -28,6 +28,7 @@ const (
 	ToolConversationsHistory        = "conversations_history"
 	ToolConversationsReplies        = "conversations_replies"
 	ToolConversationsAddMessage     = "conversations_add_message"
+	ToolConversationsEditMessage    = "conversations_edit_message"
 	ToolReactionsAdd                = "reactions_add"
 	ToolReactionsRemove             = "reactions_remove"
 	ToolAttachmentGetData           = "attachment_get_data"
@@ -53,6 +54,7 @@ var ValidToolNames = []string{
 	ToolConversationsHistory,
 	ToolConversationsReplies,
 	ToolConversationsAddMessage,
+	ToolConversationsEditMessage,
 	ToolReactionsAdd,
 	ToolReactionsRemove,
 	ToolAttachmentGetData,
@@ -198,6 +200,32 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 				mcp.Description("Raw Slack Block Kit JSON array for rich message formatting (rich_text lists, code blocks, etc.). When provided, this takes precedence over text/content_type for rendering. The text parameter becomes the notification fallback text."),
 			),
 		), conversationsHandler.ConversationsAddMessageHandler)
+	}
+
+	if shouldAddTool(ToolConversationsEditMessage, enabledTools, "SLACK_MCP_ADD_MESSAGE_TOOL") {
+		s.AddTool(mcp.NewTool(ToolConversationsEditMessage,
+			mcp.WithDescription("Replace the content of an existing message you posted, by channel_id and ts. Uses the same SLACK_MCP_ADD_MESSAGE_TOOL channel policy as conversations_add_message."),
+			mcp.WithTitleAnnotation("Edit Message"),
+			mcp.WithDestructiveHintAnnotation(true),
+			mcp.WithString("channel_id",
+				mcp.Required(),
+				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... aka #general or @username_dm."),
+			),
+			mcp.WithString("ts",
+				mcp.Required(),
+				mcp.Description("Timestamp of the message to edit, in format 1234567890.123456."),
+			),
+			mcp.WithString("text",
+				mcp.Description("Replacement text in specified content_type format."),
+			),
+			mcp.WithString("content_type",
+				mcp.DefaultString("text/markdown"),
+				mcp.Description("Content type of the replacement. Default 'text/markdown' converts Markdown to Block Kit. 'text/mrkdwn' and 'text/plain' replace the message with text and remove any previous blocks. Ignored when blocks is provided."),
+			),
+			mcp.WithString("blocks",
+				mcp.Description("Raw Slack Block Kit JSON array that replaces the message's blocks. Takes precedence over text/content_type for rendering; text becomes the notification fallback."),
+			),
+		), conversationsHandler.ConversationsEditMessageHandler)
 	}
 
 	if shouldAddTool(ToolReactionsAdd, enabledTools, "SLACK_MCP_REACTION_TOOL") {

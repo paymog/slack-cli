@@ -185,6 +185,7 @@ agent can't post or mutate by accident:
 ```sh
 SLACK_MCP_ADD_MESSAGE_TOOL=true slack-cli conversations add <channel> -t "hello"
 SLACK_MCP_ADD_MESSAGE_TOOL=C123,D456 slack-cli conversations add C123 -t "hi"   # channel allowlist
+SLACK_MCP_ADD_MESSAGE_TOOL=C123   slack-cli conversations edit C123 <ts> --text-file /tmp/fix.txt --content-type text/mrkdwn
 SLACK_MCP_MARK_TOOL=true           slack-cli conversations mark <channel> [--ts 123.456]
 SLACK_MCP_REACTION_TOOL=true       slack-cli reactions add <channel> <ts> --emoji rocket
 SLACK_MCP_REACTION_TOOL=true       slack-cli reactions remove <channel> <ts> --emoji rocket

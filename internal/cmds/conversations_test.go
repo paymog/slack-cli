@@ -16,30 +16,28 @@ import (
 	"github.com/paymog/slack-cli/internal/config"
 )
 
-func TestUnitAddFileAsNativeSlackText(t *testing.T) {
-	body := "*Findings*\n\n• Keep `code` and $HOME literal.\n• Do not decode \\n inside examples.\n"
-	path := filepath.Join(t.TempDir(), "reply.txt")
-	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
-		t.Fatal(err)
-	}
+// fakeSlack serves auth.test plus one Slack write method through the CONNECT
+// proxy the provider uses, and returns the forms posted to that method.
+func fakeSlack(t *testing.T, method, response string) <-chan url.Values {
+	t.Helper()
 	posts := make(chan url.Values, 1)
 	api := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/api/auth.test":
 			io.WriteString(w, `{"ok":true,"url":"https://example.slack.com/","team_id":"T123","user_id":"U123"}`)
-		case "/api/chat.postMessage":
+		case "/api/" + method:
 			if err := r.ParseForm(); err != nil {
 				t.Error(err)
 			}
 			posts <- r.PostForm
-			io.WriteString(w, `{"ok":true,"channel":"C123","ts":"1700.2"}`)
+			io.WriteString(w, response)
 		default:
 			t.Errorf("unexpected API call: %s", r.URL.Path)
 			http.Error(w, "unexpected API call", http.StatusNotFound)
 		}
 	}))
-	defer api.Close()
+	t.Cleanup(api.Close)
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodConnect {
 			t.Errorf("unexpected proxy method: %s", r.Method)
@@ -63,7 +61,7 @@ func TestUnitAddFileAsNativeSlackText(t *testing.T) {
 		go io.Copy(upstream, conn)
 		io.Copy(conn, upstream)
 	}))
-	defer proxy.Close()
+	t.Cleanup(proxy.Close)
 	t.Setenv("SLACK_MCP_PROXY", proxy.URL)
 	t.Setenv("SLACK_MCP_CUSTOM_TLS", "")
 	t.Setenv("SLACK_MCP_SERVER_CA", "")
@@ -76,6 +74,27 @@ func TestUnitAddFileAsNativeSlackText(t *testing.T) {
 	t.Setenv("SLACK_MCP_XOXB_TOKEN", "xoxb-test")
 	t.Setenv("SLACK_MCP_XOXC_TOKEN", "")
 	t.Setenv("SLACK_MCP_XOXD_TOKEN", "")
+	return posts
+}
+
+func receivedForm(t *testing.T, posts <-chan url.Values) url.Values {
+	t.Helper()
+	select {
+	case posted := <-posts:
+		return posted
+	default:
+		t.Fatal("no Slack write request was sent")
+		return nil
+	}
+}
+
+func TestUnitAddFileAsNativeSlackText(t *testing.T) {
+	body := "*Findings*\n\n• Keep `code` and $HOME literal.\n• Do not decode \\n inside examples.\n"
+	path := filepath.Join(t.TempDir(), "reply.txt")
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+	posts := fakeSlack(t, "chat.postMessage", `{"ok":true,"channel":"C123","ts":"1700.2"}`)
 	cmd := conversationsAddCommand(&config.Config{XOXB: "xoxb-test", NoCache: true})
 	var output bytes.Buffer
 	cmd.SetOut(&output)
@@ -83,12 +102,7 @@ func TestUnitAddFileAsNativeSlackText(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	var posted url.Values
-	select {
-	case posted = <-posts:
-	default:
-		t.Fatal("no Slack message was posted")
-	}
+	posted := receivedForm(t, posts)
 	if posted.Get("text") != body || posted.Get("blocks") != "" || posted.Get("mrkdwn") == "false" {
 		t.Fatalf("expected native Slack text without blocks, got %v", posted)
 	}
@@ -101,6 +115,50 @@ func TestUnitAddFileAsNativeSlackText(t *testing.T) {
 	}
 	if result["ts"] != "1700.2" {
 		t.Fatalf("posted timestamp missing: %v", result)
+	}
+}
+
+// chat.update retains a message's previous blocks unless blocks are sent, so a
+// text edit of a Block Kit message must clear them or the old content stays.
+func TestUnitEditTextClearsPreviousBlocks(t *testing.T) {
+	body := "fixed: <@U1> only\n"
+	path := filepath.Join(t.TempDir(), "edit.txt")
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+	posts := fakeSlack(t, "chat.update", `{"ok":true,"channel":"C123","ts":"1700.2","text":"fixed"}`)
+	cmd := conversationsEditCommand(&config.Config{XOXB: "xoxb-test", NoCache: true})
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	cmd.SetArgs([]string{"C123", "1700.2", "--text-file", path, "--content-type", "text/mrkdwn"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	posted := receivedForm(t, posts)
+	if posted.Get("ts") != "1700.2" || posted.Get("channel") != "C123" {
+		t.Fatalf("edit targeted the wrong message: %v", posted)
+	}
+	if posted.Get("text") != body || posted.Get("blocks") != "[]" {
+		t.Fatalf("expected replacement text with blocks cleared, got %v", posted)
+	}
+	var result map[string]string
+	if err := json.Unmarshal(output.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["ts"] != "1700.2" {
+		t.Fatalf("edited timestamp missing: %v", result)
+	}
+}
+
+func TestUnitEditRequiresWritePolicyForChannel(t *testing.T) {
+	fakeSlack(t, "chat.update", `{"ok":true}`)
+	t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "C999")
+	cmd := conversationsEditCommand(&config.Config{XOXB: "xoxb-test", NoCache: true})
+	cmd.SetArgs([]string{"C123", "1700.2", "-t", "nope"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected edit outside the SLACK_MCP_ADD_MESSAGE_TOOL allowlist to be refused")
 	}
 }
 
