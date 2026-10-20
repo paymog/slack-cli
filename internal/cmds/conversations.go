@@ -20,6 +20,7 @@ func newConversationsCommand(cfg *config.Config) *cobra.Command {
 		conversationsHistoryCommand(cfg),
 		conversationsRepliesCommand(cfg),
 		conversationsSearchCommand(cfg),
+		conversationsContextSearchCommand(cfg),
 		conversationsAddCommand(cfg),
 		conversationsEditCommand(cfg),
 		conversationsMarkCommand(cfg),

@@ -36,15 +36,16 @@ Provide exactly one credential set via env (the CLI also reads stored profiles):
 ```sh
 export SLACK_MCP_XOXP_TOKEN=xoxp-...        # user OAuth — full features (recommended)
 # or
-export SLACK_MCP_XOXB_TOKEN=xoxb-...        # bot token — invited channels only, no search
+export SLACK_MCP_XOXB_TOKEN=xoxb-...        # bot — context-search needs an action token
 # or
 export SLACK_MCP_XOXC_TOKEN=xoxc-...        # browser session token  + cookie below
 export SLACK_MCP_XOXD_TOKEN=xoxd-...        # browser cookie d (stealth mode)
 ```
 
 Capability notes:
-- **Search** (`conversations search`, `users_search` real-time) and **unreads**
-  work best with `xoxp` or browser (`xoxc`/`xoxd`). **Bot tokens cannot search.**
+- **Legacy search** (`conversations search`, `users_search` real-time) and **unreads**
+  work best with `xoxp` or browser (`xoxc`/`xoxd`). Bots can search public channels
+  with **`conversations context-search`**, `search:read.public`, and an action token.
 - **Saved items** (`saved …`) require browser tokens (`xoxc`/`xoxd`) only.
 - `--govslack` / `SLACK_MCP_GOVSLACK=true` routes to slack-gov.com.
 
@@ -95,12 +96,24 @@ slack-cli conversations replies <channel> <thread_ts>   # whole thread by defaul
 # Retry-After and shares the slot across processes. Set SLACK_MCP_UNLISTED_HISTORY=1
 # to force that cap. Default --timeout is 2m. Do not hammer these in a loop.
 
-# Search (needs xoxp or browser token; not bot)
+# Legacy search (needs xoxp or browser token; not bot)
 slack-cli conversations search [query] \
   [--in-channel #general] [--in-dm @user] [--with @user] [--from @user] \
   [--before YYYY-MM-DD] [--after YYYY-MM-DD] [--on YYYY-MM-DD] [--during July] \
   [--threads-only] [--limit 20] [--cursor C]
 # A full Slack message URL as the query returns just that message.
+
+# Real-time Search (public channels by default; bots need an action token)
+SLACK_MCP_ACTION_TOKEN_FILE=/run/slack/action-token slack-cli conversations context-search "aws contract" \
+  [--channel-types public_channel] [--content-types messages] [--limit 20] \
+  [--cursor C] [--sort score|timestamp] [--after YYYY-MM-DD] [--before YYYY-MM-DD] \
+  [--include-context-messages]
+# --action-token overrides the file; file contents are read fresh and trimmed.
+# User tokens need RTS scopes but no action token. Limit is 1–20; dates are UTC.
+# Treat action tokens as secrets; prefer the file over command-line arguments.
+# Invalid/expired tokens or missing scopes: unavailable for this turn; do not retry.
+# Cursor is on the last row. ContextMessages is JSON encoded inside the table field.
+# Non-message content types (files,channels,users) are preserved in Data as JSON.
 
 # Unreads, prioritized DMs > partner > internal (best with xoxp/browser)
 slack-cli conversations unreads [--types all|dm|group_dm|partner|internal] [--mentions-only] [--max-channels 50] [--max-messages-per-channel 10] [--include-muted]
@@ -228,9 +241,10 @@ slack-cli attachments get F0123ABCD | jq -r .content | base64 --decode > avatar.
 - **`conversations_add_message tool is disabled` / reactions / mark disabled** —
   set the matching env var (`SLACK_MCP_ADD_MESSAGE_TOOL`, `SLACK_MCP_REACTION_TOOL`,
   `SLACK_MCP_MARK_TOOL`) in the same command. (`attachments get` needs no env var.)
-- **search / saved / unreads return nothing or error** — bot tokens (`xoxb`)
-  can't search and lack edge APIs; use `xoxp` or browser tokens. `saved` needs
-  browser tokens.
+- **legacy search / saved / unreads return nothing or error** — bots lack legacy
+  search and edge APIs. Use `context-search` for bot public-channel search with an
+  action token; use `xoxp` or browser tokens for legacy search/unreads. `saved`
+  needs browser tokens.
 - **slow first run** — the initial `cache refresh` (or first read with no cache)
   crawls the whole workspace; subsequent calls read the cached file.
 - **multi-line post looks mangled (literal `\n` / backticks executed)** —
