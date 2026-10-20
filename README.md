@@ -79,7 +79,7 @@ go build ./cmd/slack-cli
 `slack-cli` accepts the same credentials as the MCP server. Provide **one** of:
 
 - `SLACK_MCP_XOXP_TOKEN` — user OAuth token (`xoxp-…`), full features
-- `SLACK_MCP_XOXB_TOKEN` — bot token (`xoxb-…`), limited (invited channels, no search)
+- `SLACK_MCP_XOXB_TOKEN` — bot token (`xoxb-…`), invited-channel reads and public-channel `context-search` with an action token
 - `SLACK_MCP_XOXC_TOKEN` + `SLACK_MCP_XOXD_TOKEN` — browser session token + cookie (`xoxc-…`/`xoxd-…`), stealth mode
 
 The simplest setup for CI is environment variables (the `SLACK_CLI_*` prefix is
@@ -156,6 +156,7 @@ slack-cli channels me
 slack-cli conversations history <channel> [--limit 1d] [--cursor C] [--activity]
 slack-cli conversations replies <channel> <thread_ts> [--limit 1d|<count>] [--cursor C]   # default: whole thread
 slack-cli conversations search [query] [--in-channel #general] [--from @user] [--after 2024-01-01]
+slack-cli conversations context-search "aws contract" --limit 3
 slack-cli conversations unreads [--types all] [--mentions-only]
 slack-cli conversations join <channel>
 slack-cli conversations leave <channel>
@@ -176,6 +177,29 @@ slack-cli saved clear-completed
 # Attachments (download a file by ID; always available, no env var needed)
 slack-cli attachments get <file_id> [-o path]
 ```
+
+### Real-time Search
+
+`conversations context-search` calls Slack's `assistant.search.context` API.
+Bot tokens can search public channels with `search:read.public` and the short-lived
+`action_token` from the triggering message/app mention. Pass `--action-token` or set
+`SLACK_MCP_ACTION_TOKEN_FILE` to a file containing it. The flag takes precedence;
+the file is read fresh on each invocation and whitespace is trimmed. Treat this
+token as a secret; prefer the file over command-line arguments. User tokens need
+the relevant Real-time Search scopes but no action token.
+
+Options: `--channel-types public_channel` (default), `--content-types messages`
+(default; also files, channels, users), `--limit 20` (1–20), `--cursor`,
+`--sort score|timestamp`, `--after/--before YYYY-MM-DD` (UTC), and
+`--include-context-messages`. Timestamp sorting uses keyword rather than semantic
+retrieval. JSON table rows include `ChannelID`, `ChannelName`, `Ts`, `Permalink`,
+`Author`, `Text`, and `Cursor` on the final row for pagination. `ContextMessages`
+contains JSON-encoded surrounding messages when requested; non-message results
+are preserved as JSON in `Data` with a `ContentType`. `--raw` returns CSV.
+
+Missing/expired action tokens or missing scopes mean search is unavailable for
+that turn: do not retry. The older `conversations search` still requires a user
+or browser token and uses different scopes.
 
 ### Write/sensitive commands (disabled by default)
 
