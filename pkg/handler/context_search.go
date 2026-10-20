@@ -12,7 +12,6 @@ import (
 	"github.com/gocarina/gocsv"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/paymog/slack-cli/pkg/provider"
-	"github.com/slack-go/slack"
 )
 
 // ResolveActionToken reads the file afresh, allowing rotation between invocations.
@@ -35,10 +34,10 @@ func ResolveActionToken(flag string, bot bool) (string, error) {
 }
 
 func contextSearchParams(req mcp.CallToolRequest, bot bool) (provider.AssistantContextParameters, error) {
-	p := provider.AssistantContextParameters{AssistantSearchContextParameters: slack.AssistantSearchContextParameters{
+	p := provider.AssistantContextParameters{
 		Query: req.GetString("query", ""), ChannelTypes: strings.Split(req.GetString("channel_types", "public_channel"), ","),
 		ContentTypes: strings.Split(req.GetString("content_types", "messages"), ","), Limit: req.GetInt("limit", 20), Cursor: req.GetString("cursor", ""),
-	}, Sort: req.GetString("sort", "score"), IncludeContextMessages: req.GetBool("include_context_messages", false)}
+		Sort: req.GetString("sort", "score"), IncludeContextMessages: req.GetBool("include_context_messages", false)}
 	if strings.TrimSpace(p.Query) == "" {
 		return p, errors.New("context-search requires a query")
 	}

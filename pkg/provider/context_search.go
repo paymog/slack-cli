@@ -1,11 +1,11 @@
 package provider
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"io"
+	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -15,9 +15,14 @@ import (
 	"go.uber.org/zap"
 )
 
-// AssistantContextParameters extends slack-go v0.19's incomplete RTS parameters.
+// AssistantContextParameters includes current RTS fields missing in slack-go v0.19.
 type AssistantContextParameters struct {
-	slack.AssistantSearchContextParameters
+	Query                  string
+	ActionToken            string
+	ChannelTypes           []string
+	ContentTypes           []string
+	Limit                  int
+	Cursor                 string
 	Sort                   string
 	After                  int64
 	Before                 int64
@@ -43,63 +48,58 @@ type AssistantContextResponse struct {
 	NextCursor string `json:"next_cursor"`
 }
 
-// contextSearchClient supplies fields not yet exposed by slack-go and preserves
-// response fields its decoder would otherwise discard. It is private to one call.
-type contextSearchClient struct {
-	base interface {
-		Do(*http.Request) (*http.Response, error)
+func searchAssistantContext(ctx context.Context, client *http.Client, base, token string, p AssistantContextParameters) (*AssistantContextResponse, error) {
+	form := url.Values{
+		"token": {token}, "query": {p.Query},
+		"channel_types": {strings.Join(p.ChannelTypes, ",")},
+		"content_types": {strings.Join(p.ContentTypes, ",")},
+		"limit":         {strconv.Itoa(p.Limit)}, "sort": {p.Sort},
+		"include_context_messages": {strconv.FormatBool(p.IncludeContextMessages)},
 	}
-	params AssistantContextParameters
-	result AssistantContextResponse
-}
-
-func (c *contextSearchClient) Do(req *http.Request) (*http.Response, error) {
-	if err := req.ParseForm(); err != nil {
-		return nil, err
+	if p.ActionToken != "" {
+		form.Set("action_token", p.ActionToken)
 	}
-	req.PostForm.Set("sort", c.params.Sort)
-	if c.params.After != 0 {
-		req.PostForm.Set("after", strconv.FormatInt(c.params.After, 10))
+	if p.Cursor != "" {
+		form.Set("cursor", p.Cursor)
 	}
-	if c.params.Before != 0 {
-		req.PostForm.Set("before", strconv.FormatInt(c.params.Before, 10))
+	if p.After != 0 {
+		form.Set("after", strconv.FormatInt(p.After, 10))
 	}
-	req.PostForm.Set("include_context_messages", strconv.FormatBool(c.params.IncludeContextMessages))
-	body := req.PostForm.Encode()
-	req.Body = io.NopCloser(strings.NewReader(body))
-	req.ContentLength = int64(len(body))
-	req.GetBody = nil
-	res, err := c.base.Do(req)
+	if p.Before != 0 {
+		form.Set("before", strconv.FormatInt(p.Before, 10))
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"assistant.search.context", strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, err
 	}
-	data, err := io.ReadAll(res.Body)
-	res.Body.Close()
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	// The shared transport moves OAuth tokens from the form to a Bearer header,
+	// while preserving browser-token authentication and cookies.
+	res, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
-	res.Body = io.NopCloser(bytes.NewReader(data))
-	if res.StatusCode == http.StatusOK {
-		if err := json.Unmarshal(data, &c.result); err != nil {
-			res.Body.Close()
-			return nil, err
-		}
+	defer res.Body.Close()
+	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("assistant.search.context HTTP status %d", res.StatusCode)
 	}
-	return res, nil
+	var result AssistantContextResponse
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	if err := result.Err(); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 func (c *MCPSlackClient) SearchAssistantContextContext(ctx context.Context, params AssistantContextParameters) (*AssistantContextResponse, error) {
-	client := &contextSearchClient{base: transport.ProvideHTTPClient(c.authProvider.Cookies(), zap.NewNop()), params: params}
-	opts := []slack.Option{slack.OptionHTTPClient(client)}
+	base := "https://slack.com/api/"
 	if !c.isOAuth {
-		opts = append(opts, slack.OptionAPIURL(c.teamEndpoint+"api/"))
+		base = c.teamEndpoint + "api/"
+	} else if os.Getenv("SLACK_MCP_GOVSLACK") == "true" {
+		base = "https://slack-gov.com/api/"
 	}
-	if c.isOAuth && os.Getenv("SLACK_MCP_GOVSLACK") == "true" {
-		opts = append(opts, slack.OptionAPIURL("https://slack-gov.com/api/"))
-	}
-	_, err := slack.New(c.authProvider.SlackToken(), opts...).SearchAssistantContextContext(ctx, params.AssistantSearchContextParameters)
-	if err != nil {
-		return nil, err
-	}
-	return &client.result, nil
+	client := transport.ProvideHTTPClient(c.authProvider.Cookies(), zap.NewNop())
+	return searchAssistantContext(ctx, client, base, c.authProvider.SlackToken(), params)
 }
